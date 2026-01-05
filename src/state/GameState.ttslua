@@ -201,89 +201,6 @@ function GameState.debugPrint(message)
   end
 end
 
--------------------------------------------------------------------------------
--- State Management Functions
--------------------------------------------------------------------------------
-
--- Save state to JSON for TTS save system
-	function GameState.serialize()
-	  return JSON.encode({
-    fresh = GameState.fresh,
-    gameStarted = GameState.gameStarted,
-    gameId = GameState.gameId,
-    navigationCount = GameState.navigationCount,
-    travelerRotationIndex = GameState.travelerRotationIndex,
-    travelerActiveId = GameState.travelerActiveId,
-    travelerActiveGuid = GameState.travelerActiveGuid,
-    selectedCharacters = GameState.selectedCharacters,
-    originDestinyActive = GameState.originDestinyActive,
-    -- Player-specific state (survives undo)
-    destinationPerPlayerColor = GameState.destinationPerPlayerColor,
-    traitSettingsPerPlayer = GameState.traitSettingsPerPlayer,
-    draw2Pick1Active = GameState.draw2Pick1Active,
-    playerResources = GameState.playerResources,
-    handDrawsThisNavigation = GameState.handDrawsThisNavigation,
-    -- Persist API lookup data to avoid re-fetching on reload
-    classes = GameState.classes,
-    customDice = GameState.customDice,
-    runes = GameState.runes,
-    characterMatData = GameState.characterMatData,
-    availableCharacters = GameState.availableCharacters,
-	    referenceSheetUrl = GameState.referenceSheetUrl,
-	    iconGuideUrl = GameState.iconGuideUrl,
-	    iconGuideIcons = GameState.iconGuideIcons,
-	    d12ImageUrl = GameState.d12ImageUrl,
-	    resourceIcons = GameState.resourceIcons,
-	    statusTokens = GameState.statusTokens,
-	    ttsMenu = GameState.ttsMenu
-	  })
-	end
-
--- Load state from JSON
-function GameState.deserialize(saveData)
-  if saveData and saveData ~= "" then
-    local loadedData = JSON.decode(saveData)
-    GameState.fresh = loadedData.fresh
-    GameState.gameStarted = loadedData.gameStarted or false
-    GameState.gameId = loadedData.gameId
-    GameState.navigationCount = loadedData.navigationCount or 0
-    GameState.travelerRotationIndex = loadedData.travelerRotationIndex or 1
-    GameState.travelerActiveId = loadedData.travelerActiveId
-    GameState.travelerActiveGuid = loadedData.travelerActiveGuid
-    GameState.selectedCharacters = loadedData.selectedCharacters or {}
-    GameState.originDestinyActive = loadedData.originDestinyActive or {}
-    -- Restore player-specific state
-    GameState.destinationPerPlayerColor = loadedData.destinationPerPlayerColor or {}
-    GameState.traitSettingsPerPlayer = loadedData.traitSettingsPerPlayer or {}
-    GameState.draw2Pick1Active = loadedData.draw2Pick1Active or {}
-    GameState.playerResources = loadedData.playerResources or {}
-    GameState.handDrawsThisNavigation = loadedData.handDrawsThisNavigation or {}
-    for playerColor, _ in pairs(GameState.playerResources) do
-      ensurePlayerResourceDefaults(playerColor)
-    end
-
-    -- Restore API lookup data if saved
-    if loadedData.classes then
-      GameState.classes = loadedData.classes
-      GameState.customDice = loadedData.customDice or {}
-      GameState.runes = loadedData.runes or {}
-      GameState.characterMatData = loadedData.characterMatData or {}
-      GameState.availableCharacters = loadedData.availableCharacters or {}
-	      GameState.referenceSheetUrl = loadedData.referenceSheetUrl
-	      GameState.iconGuideUrl = loadedData.iconGuideUrl
-	      GameState.iconGuideIcons = loadedData.iconGuideIcons or {}
-	      GameState.d12ImageUrl = loadedData.d12ImageUrl
-	      GameState.resourceIcons = loadedData.resourceIcons or { blood = nil, victoryPoint = nil, barrier = nil }
-	      GameState.statusTokens = loadedData.statusTokens or {}
-	      GameState.ttsMenu = loadedData.ttsMenu or { backgroundUrl = nil }
-
-      -- Rebuild lookup tables from saved data
-      GameState.buildLookups(GameState.classes, GameState.customDice, GameState.runes)
-      GameState.debugPrint("[GameState] Restored " .. #GameState.classes .. " classes, " ..
-        #GameState.customDice .. " dice, " .. #GameState.runes .. " runes from save")
-    end
-  end
-end
 
 --- Check if API data has been cached (restored from save)
 --- Used to skip HTTP requests on undo/reload
@@ -382,4 +299,89 @@ function GameState.resetToLobby()
 	  GameState.statusTokens = {}
 	end
 
+-------------------------------------------------------------------------------
+-- State Management Functions
+-------------------------------------------------------------------------------
+
+-- Save state to JSON for TTS save system
+	function GameState.serialize()
+	  return JSON.encode({
+    fresh = GameState.fresh,
+    gameStarted = GameState.gameStarted,
+    gameId = GameState.gameId,
+    navigationCount = GameState.navigationCount,
+    travelerRotationIndex = GameState.travelerRotationIndex,
+    travelerActiveId = GameState.travelerActiveId,
+    travelerActiveGuid = GameState.travelerActiveGuid,
+    selectedCharacters = GameState.selectedCharacters,
+    originDestinyActive = GameState.originDestinyActive,
+    -- Player-specific state (survives undo)
+    destinationPerPlayerColor = GameState.destinationPerPlayerColor,
+    traitSettingsPerPlayer = GameState.traitSettingsPerPlayer,
+    draw2Pick1Active = GameState.draw2Pick1Active,
+    playerResources = GameState.playerResources,
+    handDrawsThisNavigation = GameState.handDrawsThisNavigation,
+    -- Persist API lookup data to avoid re-fetching on reload
+    classes = GameState.classes,
+    customDice = GameState.customDice,
+    runes = GameState.runes,
+    characterMatData = GameState.characterMatData,
+    availableCharacters = GameState.availableCharacters,
+	    referenceSheetUrl = GameState.referenceSheetUrl,
+	    iconGuideUrl = GameState.iconGuideUrl,
+	    iconGuideIcons = GameState.iconGuideIcons,
+	    d12ImageUrl = GameState.d12ImageUrl,
+	    resourceIcons = GameState.resourceIcons,
+	    statusTokens = GameState.statusTokens,
+	    ttsMenu = GameState.ttsMenu
+	  })
+	end
+
+-- Load state from JSON
+function GameState.deserialize(saveData)
+  if saveData and saveData ~= "" then
+    local loadedData = JSON.decode(saveData)
+    GameState.fresh = loadedData.fresh
+    GameState.gameStarted = loadedData.gameStarted or false
+    GameState.gameId = loadedData.gameId
+    GameState.navigationCount = loadedData.navigationCount or 0
+    GameState.travelerRotationIndex = loadedData.travelerRotationIndex or 1
+    GameState.travelerActiveId = loadedData.travelerActiveId
+    GameState.travelerActiveGuid = loadedData.travelerActiveGuid
+    GameState.selectedCharacters = loadedData.selectedCharacters or {}
+    GameState.originDestinyActive = loadedData.originDestinyActive or {}
+    -- Restore player-specific state
+    GameState.destinationPerPlayerColor = loadedData.destinationPerPlayerColor or {}
+    GameState.traitSettingsPerPlayer = loadedData.traitSettingsPerPlayer or {}
+    GameState.draw2Pick1Active = loadedData.draw2Pick1Active or {}
+    GameState.playerResources = loadedData.playerResources or {}
+    GameState.handDrawsThisNavigation = loadedData.handDrawsThisNavigation or {}
+    for playerColor, _ in pairs(GameState.playerResources) do
+      ensurePlayerResourceDefaults(playerColor)
+    end
+
+    -- Restore API lookup data if saved
+    if loadedData.classes then
+      GameState.classes = loadedData.classes
+      GameState.customDice = loadedData.customDice or {}
+      GameState.runes = loadedData.runes or {}
+      GameState.characterMatData = loadedData.characterMatData or {}
+      GameState.availableCharacters = loadedData.availableCharacters or {}
+	      GameState.referenceSheetUrl = loadedData.referenceSheetUrl
+	      GameState.iconGuideUrl = loadedData.iconGuideUrl
+	      GameState.iconGuideIcons = loadedData.iconGuideIcons or {}
+	      GameState.d12ImageUrl = loadedData.d12ImageUrl
+	      GameState.resourceIcons = loadedData.resourceIcons or { blood = nil, victoryPoint = nil, barrier = nil }
+	      GameState.statusTokens = loadedData.statusTokens or {}
+	      GameState.ttsMenu = loadedData.ttsMenu or { backgroundUrl = nil }
+
+      -- Rebuild lookup tables from saved data
+      GameState.buildLookups(GameState.classes, GameState.customDice, GameState.runes)
+      GameState.debugPrint("[GameState] Restored " .. #GameState.classes .. " classes, " ..
+        #GameState.customDice .. " dice, " .. #GameState.runes .. " runes from save")
+    end
+  end
+end
+
 return GameState
+
