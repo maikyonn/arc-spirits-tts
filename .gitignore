@@ -1,3 +1,10 @@
 .vscode/settings.json
 __pycache__/
 output.json
+
+# Local-only dev/tooling content
+/.claude/
+
+# Generated/large mod artifacts (keep local, don't version)
+/objects/
+/scripts/
