@@ -1,0 +1,32 @@
+{
+  "CameraStates": [],
+  "ComponentTags": {},
+  "CustomUIAssets": [],
+  "Date": "",
+  "DecalPallet": [],
+  "Decals": [],
+  "GameComplexity": "",
+  "GameMode": "",
+  "GameType": "",
+  "Grid": {},
+  "Hands": {},
+  "Lighting": {},
+  "LuaScript": "",
+  "LuaScriptState": "",
+  "MusicPlayer": {},
+  "Note": "",
+  "ObjectStates": [
+    {
+      "GUID": "15990d",
+      "LuaScript": "var foo = 42"
+    }
+  ],
+  "SaveName": "",
+  "Sky": "",
+  "SnapPoints": [],
+  "TabStates": {},
+  "Table": "",
+  "Turns": {},
+  "VersionNumber": "",
+  "XmlUI": ""
+}

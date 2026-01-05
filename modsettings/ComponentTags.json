@@ -1,0 +1,76 @@
+{
+  "labels": [
+    {
+      "displayed": "HexSpirit",
+      "normalized": "hexspirit"
+    },
+    {
+      "displayed": "Playermat",
+      "normalized": "playermat"
+    },
+    {
+      "displayed": "NotInteractable",
+      "normalized": "notinteractable"
+    },
+    {
+      "displayed": "Status",
+      "normalized": "status"
+    },
+    {
+      "displayed": "Rune",
+      "normalized": "rune"
+    },
+    {
+      "displayed": "Die",
+      "normalized": "die"
+    },
+    {
+      "displayed": "SpiritContainer",
+      "normalized": "spiritcontainer"
+    },
+    {
+      "displayed": "Barrier",
+      "normalized": "barrier"
+    },
+    {
+      "displayed": "Victory",
+      "normalized": "victory"
+    },
+    {
+      "displayed": "Icon",
+      "normalized": "icon"
+    },
+    {
+      "displayed": "Tainted",
+      "normalized": "tainted"
+    },
+    {
+      "displayed": "Purified",
+      "normalized": "purified"
+    },
+    {
+      "displayed": "Corrupt",
+      "normalized": "corrupt"
+    },
+    {
+      "displayed": "Fallen",
+      "normalized": "fallen"
+    },
+    {
+      "displayed": "OriginDestiny",
+      "normalized": "origindestiny"
+    },
+    {
+      "displayed": "SpecialSpirit",
+      "normalized": "specialspirit"
+    },
+    {
+      "displayed": "Artifact",
+      "normalized": "artifact"
+    },
+    {
+      "displayed": "Monster",
+      "normalized": "monster"
+    }
+  ]
+}

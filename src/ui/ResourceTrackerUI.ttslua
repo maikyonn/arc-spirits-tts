@@ -1,0 +1,234 @@
+-------------------------------------------------------------------------------
+-- ResourceTrackerUI: Arcane Blood, Victory Points, and Barriers tracker
+-- Left-side panel with +/- buttons and icon displays
+-------------------------------------------------------------------------------
+
+local UITheme = require("ui/UITheme")
+local GameState = require("state/GameState")
+local PlayerMatLib = require("game/PlayerMatLib")
+
+local ResourceTrackerUI = {}
+
+-------------------------------------------------------------------------------
+-- Constants
+-------------------------------------------------------------------------------
+
+local PANEL_WIDTH = 120
+local PANEL_HEIGHT = 220
+local ICON_SIZE = 32
+local BUTTON_SIZE = 28
+
+-------------------------------------------------------------------------------
+-- Helper Functions
+-------------------------------------------------------------------------------
+
+--- Get the blood icon URL
+---@return string Icon URL
+local function getBloodIcon()
+  return GameState.resourceIcons.blood or ""
+end
+
+--- Get the victory point icon URL
+---@return string Icon URL
+local function getVictoryPointIcon()
+  return GameState.resourceIcons.victoryPoint or ""
+end
+
+--- Get the barrier icon URL
+---@return string Icon URL
+local function getBarrierIcon()
+  return GameState.resourceIcons.barrier or ""
+end
+
+--- Get the status icon URL
+---@param level number Status level
+---@return string Icon URL
+local function getStatusIcon(level)
+  local statusToken = GameState.statusTokens and GameState.statusTokens[level]
+  return statusToken and statusToken.imageUrl or ""
+end
+
+--- Build a resource row with icon, count, and +/- buttons
+---@param playerColor string The player color
+---@param resourceType string "blood", "vp", or "barrier"
+---@param iconUrl string URL for the icon
+---@param count number Current count
+---@return table XML element for the resource row
+local function buildResourceRow(playerColor, resourceType, iconUrl, count)
+  local idPrefix = playerColor .. "_" .. resourceType
+
+  return {
+    tag = "HorizontalLayout",
+    attributes = {
+      spacing = 4,
+      childAlignment = "MiddleCenter",
+      preferredHeight = 44
+    },
+    children = {
+      -- Minus button
+      {
+        tag = "Button",
+        attributes = {
+          id = idPrefix .. "_minus",
+          onClick = "xml_adjustResource",
+          color = UITheme.colors.error or "#CC3333",
+          preferredWidth = BUTTON_SIZE,
+          preferredHeight = BUTTON_SIZE
+        },
+        children = {
+          {
+            tag = "Text",
+            attributes = {
+              text = "-",
+              fontSize = UITheme.sizes.fontSize.lg,
+              fontStyle = "Bold",
+              color = "White",
+              alignment = "MiddleCenter"
+            }
+          }
+        }
+      },
+      -- Icon
+      {
+        tag = "Image",
+        attributes = {
+          id = idPrefix .. "_icon",
+          image = iconUrl,
+          preserveAspect = "true",
+          preferredWidth = ICON_SIZE,
+          preferredHeight = ICON_SIZE
+        }
+      },
+      -- Count display
+      {
+        tag = "Text",
+        attributes = {
+          id = idPrefix .. "_count",
+          text = tostring(count),
+          fontSize = UITheme.sizes.fontSize.xl,
+          fontStyle = "Bold",
+          color = "White",
+          alignment = "MiddleCenter",
+          preferredWidth = 30
+        }
+      },
+      -- Plus button
+      {
+        tag = "Button",
+        attributes = {
+          id = idPrefix .. "_plus",
+          onClick = "xml_adjustResource",
+          color = UITheme.colors.success or "#33CC33",
+          preferredWidth = BUTTON_SIZE,
+          preferredHeight = BUTTON_SIZE
+        },
+        children = {
+          {
+            tag = "Text",
+            attributes = {
+              text = "+",
+              fontSize = UITheme.sizes.fontSize.lg,
+              fontStyle = "Bold",
+              color = "White",
+              alignment = "MiddleCenter"
+            }
+          }
+        }
+      }
+    }
+  }
+end
+
+-------------------------------------------------------------------------------
+-- Public API
+-------------------------------------------------------------------------------
+
+--- Build the resource tracker panel for a player
+---@param playerColor string The player color
+---@return table XML element for the resource tracker panel
+function ResourceTrackerUI.build(playerColor)
+  local blood = PlayerMatLib.getBlood(playerColor)
+  local vp = PlayerMatLib.getVictoryPoints(playerColor)
+  local barrier = PlayerMatLib.getBarrier(playerColor)
+  local status = PlayerMatLib.getStatus(playerColor)
+
+  return {
+    tag = "Panel",
+    attributes = {
+      id = playerColor .. "_resource_tracker",
+      width = PANEL_WIDTH,
+      height = PANEL_HEIGHT,
+      color = UITheme.colors.background or "rgba(0,0,0,0.8)",
+      rectAlignment = "MiddleLeft",
+      offsetXY = "10 0",
+      visibility = playerColor,
+      active = "true",
+      outline = playerColor,
+      outlineSize = "2"
+    },
+    children = {
+      {
+        tag = "VerticalLayout",
+        attributes = {
+          spacing = 8,
+          padding = "8 8 8 8",
+          childAlignment = "MiddleCenter"
+        },
+        children = {
+          -- Blood row
+          buildResourceRow(playerColor, "blood", getBloodIcon(), blood),
+          -- Victory Points row
+          buildResourceRow(playerColor, "vp", getVictoryPointIcon(), vp),
+          -- Barrier row
+          buildResourceRow(playerColor, "barrier", getBarrierIcon(), barrier),
+          -- Status row
+          buildResourceRow(playerColor, "status", getStatusIcon(status), status)
+        }
+      }
+    }
+  }
+end
+
+--- Update the displayed count for a resource
+---@param playerColor string The player color
+---@param resourceType string "blood" or "vp"
+---@param count number The new count
+function ResourceTrackerUI.updateCount(playerColor, resourceType, count)
+  local elementId = playerColor .. "_" .. resourceType .. "_count"
+  UI.setAttribute(elementId, "text", tostring(count))
+end
+
+--- Update both resource counts for a player
+---@param playerColor string The player color
+function ResourceTrackerUI.updateAll(playerColor)
+  local blood = PlayerMatLib.getBlood(playerColor)
+  local vp = PlayerMatLib.getVictoryPoints(playerColor)
+  local barrier = PlayerMatLib.getBarrier(playerColor)
+  ResourceTrackerUI.updateCount(playerColor, "blood", blood)
+  ResourceTrackerUI.updateCount(playerColor, "vp", vp)
+  ResourceTrackerUI.updateCount(playerColor, "barrier", barrier)
+  ResourceTrackerUI.updateStatus(playerColor)
+end
+
+--- Update status count and icon for a player
+---@param playerColor string The player color
+function ResourceTrackerUI.updateStatus(playerColor)
+  local status = PlayerMatLib.getStatus(playerColor)
+  ResourceTrackerUI.updateCount(playerColor, "status", status)
+  local icon = getStatusIcon(status)
+  UI.setAttribute(playerColor .. "_status_icon", "image", icon)
+end
+
+--- Show the resource tracker for a player
+---@param playerColor string The player color
+function ResourceTrackerUI.show(playerColor)
+  UI.setAttribute(playerColor .. "_resource_tracker", "active", "true")
+end
+
+--- Hide the resource tracker for a player
+---@param playerColor string The player color
+function ResourceTrackerUI.hide(playerColor)
+  UI.setAttribute(playerColor .. "_resource_tracker", "active", "false")
+end
+
+return ResourceTrackerUI

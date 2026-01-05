@@ -1,0 +1,204 @@
+do
+  local ObjectTemplateLib = {}
+  local TableLib          = require("util/TableLib")
+
+  local TEMPLATES         = {
+    bag = {
+      Name             = "Bag",
+      Transform        = {
+        rotY   = 180,
+        scaleX = 1,
+        scaleY = 1,
+        scaleZ = 1
+      },
+      Nickname         = "Bag",
+      ColorDiffuse     = { r = 0.7, g = 0.35, b = 0 },
+      Bag              = { Order = 0 },
+      ContainedObjects = {}
+    },
+    customspiritbag = {
+      Name             = "Custom_Model_Bag",
+      Transform        = {
+        rotY   = 180,
+        scaleX = 1,
+        scaleY = 1,
+        scaleZ = 1
+      },
+      Nickname         = "Bag",
+      ColorDiffuse     = { r = 0.7, g = 0.35, b = 0 },
+      Number           = 0,
+      CustomMesh       = {
+        MeshURL       =
+        "https://steamusercontent-a.akamaihd.net/ugc/1666858349285421330/85514136CA7CC07D1571B594321C1D3D01DC2B2C/",
+        DiffuseURL    = "",
+        NormalURL     = "",
+        ColliderURL   = "",
+        Convex        = true,
+        MaterialIndex = 0,
+        TypeIndex     = 6,
+        CastShadows   = true
+      },
+      Bag              = { Order = 0 },
+      ContainedObjects = {},
+      ChildObjects     = {
+        {
+          Name = "Custom_Token",
+          Transform = {
+            posX = 0,
+            posY = 0.5,
+            posZ = 0,
+            rotX = 0,
+            rotY = 0,
+            rotZ = 0,
+            scaleX = 0.294,
+            scaleY = 10,
+            scaleZ = 0.321
+          },
+          AltLookAngle = { x = 0, y = 0, z = 0 },
+          ColorDiffuse = { r = 1, g = 1, b = 1 },
+          Locked = true,
+          CustomImage = {
+            ImageURL          = "",
+            ImageSecondaryURL = "",
+            ImageScalar       = 1,
+            WidthScale        = 0,
+            CustomToken       = {
+              Thickness           = 0.1,
+              MergeDistancePixels = 15,
+              StandUp             = false,
+              Stackable           = false
+            }
+          }
+        }
+      }
+    },
+    tile = {
+      Name = "Custom_Tile",
+      Transform = {
+        rotY   = 180,
+        scaleX = 1,
+        scaleY = 1,
+        scaleZ = 1
+      },
+      ColorDiffuse = { r = 1, g = 1, b = 1 },
+      CustomImage = {
+        ImageURL    = "",
+        ImageScalar = 1,
+        WidthScale  = 0,
+        CustomTile  = {
+          Type      = 0,
+          Thickness = 0.2,
+          Stackable = false,
+          Stretch   = true
+        }
+      }
+    },
+    origindestinytile = {
+      Name = "Custom_Tile",
+      Transform = {
+        rotY   = 180,
+        scaleX = 2.56,
+        scaleY = 1,
+        scaleZ = 2.2
+      },
+      ColorDiffuse = { r = 1, g = 1, b = 1 },
+      CustomImage = {
+        ImageURL          = "",
+        ImageSecondaryURL = "",
+        ImageScalar       = 1,
+        WidthScale        = 1,
+        CustomTile = {
+          Type      = 1,
+          Thickness = 0.2,
+          Stackable = false,
+          Stretch   = true
+        }
+      }
+    },
+    token = {
+      Name = "Custom_Token",
+      Transform = {
+        rotY   = 180,
+        scaleX = 1,
+        scaleY = 1,
+        scaleZ = 1
+      },
+      ColorDiffuse = { r = 1, g = 1, b = 1 },
+      CustomImage = {
+        ImageURL    = "",
+        ImageScalar = 1,
+        WidthScale  = 0,
+        CustomToken = {
+          Thickness           = 0.2,
+          MergeDistancePixels = 25,
+          StandUp             = false,
+          Stackable           = false
+        }
+      }
+    },
+    figurine = {
+      Name = "Figurine_Custom",
+      Transform = {
+        rotY   = 180,
+        scaleX = 1,
+        scaleY = 1,
+        scaleZ = 1
+      },
+      ColorDiffuse = { r = 1, g = 1, b = 1 },
+      CustomImage = {
+        ImageURL    = "",
+        ImageSecondaryURL = "",
+        ImageScalar = 2.25
+      }
+    },
+    card = {
+      Name = "Card",
+      Transform = {
+        rotY   = 180,
+        scaleX = 1,
+        scaleY = 1,
+        scaleZ = 1
+      },
+      CardID = 100,
+      CustomDeck = {
+        ["1"] = {
+          BackIsHidden = true,
+          BackURL      = "",
+          FaceURL      = "",
+          NumHeight    = 1,
+          NumWidth     = 1,
+          Type         = 0,
+          UniqueBack   = false
+        }
+      }
+    },
+    dice = {
+      Name = "Custom_Dice",
+      Transform = {
+        rotY   = 0,
+        scaleX = 2,
+        scaleY = 2,
+        scaleZ = 2
+      },
+      ColorDiffuse = { r = 1, g = 1, b = 1 },
+      CustomImage = {
+        ImageURL          = "",
+        ImageSecondaryURL = "",
+        CustomDice = {
+          Type = 1  -- 1=d6, 4=d12
+        }
+      }
+    }
+  }
+
+  function ObjectTemplateLib.getTemplate(objectType)
+    local template = TEMPLATES[string.lower(objectType)]
+    if not template then
+      printToAll("Did not find an object template for " .. objectType .. ".", "Red")
+      return
+    end
+    return TableLib.copy(template)
+  end
+
+  return ObjectTemplateLib
+end

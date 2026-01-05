@@ -1,0 +1,81 @@
+-- UtilLib: General utility and helper functions
+-- Extracted from Global.ttslua for better modularity
+
+local UtilLib = {}
+
+-------------------------------------------------------------------------------
+-- String Utilities
+-------------------------------------------------------------------------------
+
+-- Capitalizes the first letter of a string
+-- @param str: string to capitalize
+-- @return: string with first letter capitalized
+function UtilLib.properCase(str)
+  return string.upper(string.sub(str, 1, 1)) .. string.sub(str, 2, -1)
+end
+
+-------------------------------------------------------------------------------
+-- Object Finding
+-------------------------------------------------------------------------------
+
+-- Finds a TTS object by its nickname
+-- @param name: name of the object to find
+-- @return: object if found, nil otherwise
+function UtilLib.getObjectByName(name)
+  for _, obj in ipairs(getObjects()) do
+    if obj.getName() == name then
+      return obj
+    end
+  end
+  return nil
+end
+
+-------------------------------------------------------------------------------
+-- Data Parsing
+-------------------------------------------------------------------------------
+
+-- Parses JSON metadata from GMNotes
+-- @param data: JSON string from object.getGMNotes()
+-- @return: parsed table, or empty table if invalid
+function UtilLib.getMetadata(data)
+  return JSON.decode(data) or {}
+end
+
+-------------------------------------------------------------------------------
+-- Player Utilities
+-------------------------------------------------------------------------------
+
+-- Generates a BB-code colored string with player name
+-- @param playerColor: player color (e.g., "Red", "Blue")
+-- @return: colored string with player name
+function UtilLib.getColoredName(playerColor)
+  local displayName = playerColor
+  if playerColor ~= "Grey" and Player[playerColor].steam_name then
+    displayName = Player[playerColor].steam_name
+  end
+
+  -- add bb-code
+  return "[" .. Color.fromString(playerColor):toHex() .. "]" .. displayName .. "[-]"
+end
+
+-- Gets the playermat object for a specific player color
+-- Finds the mat closest to the player's hand position
+-- @param playerColor: player color (e.g., "Red", "Blue")
+-- @return: playermat object if found, nil otherwise
+function UtilLib.getPlayermat(playerColor)
+  local handData = Player[playerColor].getHandTransform()
+  if not handData then return end
+
+  local startPos = handData.position
+  local result, smallestDistance
+  for _, mat in ipairs(getObjectsWithTag("Playermat")) do
+    local distance = Vector.between(startPos, mat.getPosition()):magnitude()
+    if smallestDistance == nil or distance < smallestDistance then
+      smallestDistance = distance
+      result = mat
+    end
+  end
+  return result
+end
+
+return UtilLib

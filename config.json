@@ -1,0 +1,87 @@
+{
+  "CameraStates": [
+    {
+      "AbsolutePosition": {
+        "x": -5,
+        "y": 132.7,
+        "z": -41
+      },
+      "Distance": 140,
+      "Position": {
+        "x": -5,
+        "y": -2.5,
+        "z": -5
+      },
+      "Rotation": {
+        "x": 75,
+        "y": 0,
+        "z": 0
+      },
+      "Zoomed": false
+    }
+  ],
+  "ComponentTags_path": "ComponentTags.json",
+  "CustomUIAssets_path": "CustomUIAssets.json",
+  "DecalPallet": [],
+  "Decals": [],
+  "GameComplexity": "",
+  "GameMode": "Arc Spirits",
+  "GameType": "",
+  "Gravity": 0.5,
+  "Grid_path": "Grid.json",
+  "Hands": {
+    "DisableUnused": false,
+    "Enable": true,
+    "Hiding": 0
+  },
+  "Lighting_path": "Lighting.json",
+  "LuaScript": "require(\"Global\")",
+  "LuaScriptState_path": "LuaScriptState.luascriptstate",
+  "MusicPlayer": {},
+  "Note": "",
+  "ObjectStates_order": [
+    "HandTrigger.6fc458",
+    "HandTrigger.aa3bda",
+    "HandTrigger.3ffc54",
+    "HandTrigger.3ffc55",
+    "HandTrigger.3ffc56",
+    "Custom_Assetbundle.afc863",
+    "Custom_Assetbundle.c8edca",
+    "Custom_Assetbundle.393bf7",
+    "Custom_Assetbundle.12c65e",
+    "FlexTableControl.bd69bd",
+    "Custom_Assetbundle.f938a2",
+    "Custom_Assetbundle.9f95fd",
+    "Custom_Assetbundle.35b95f",
+    "Custom_Assetbundle.5af8f2",
+    "Custom_Model.4ee1f2",
+    "PlayermatReserve.reserve1",
+    "TokenReserve.tokenrv",
+    "Wall.fcf68b",
+    "Wall.cce386",
+    "Wall.906112",
+    "Wall.94dade",
+    "Wall.e762f9",
+    "Wall.27ebee",
+    "Wall.5dd474",
+    "Wall.fe6a6b",
+    "Wall.002a6c",
+    "Wall.102655",
+    "Wall.78009e",
+    "Wall.6018dc",
+    "Wall.01f810",
+    "Wall.27b491",
+    "Wall.e29621",
+    "3DText.8e7d0a"
+  ],
+  "PlayArea": 0.5,
+  "SaveName": "Arc Spirits",
+  "Sky": "Sky_Museum",
+  "SnapPoints_path": "SnapPoints.json",
+  "TabStates_path": "TabStates.json",
+  "Table": "Table_None",
+  "Tags": [],
+  "Turns_path": "Turns.json",
+  "VersionNumber": "v13.3",
+  "XmlUI_path": "Root.xml"
+}

@@ -1,0 +1,155 @@
+-------------------------------------------------------------------------------
+-- RuneSelectorUI: Rune selector panel UI builder
+-- Generates XML for the rune selection window with grid of available runes
+-------------------------------------------------------------------------------
+
+local UITheme = require("ui/UITheme")
+local UIComponents = require("ui/UIComponents")
+local GameState = require("state/GameState")
+
+local RuneSelectorUI = {}
+
+-------------------------------------------------------------------------------
+-- Build rune button component
+-------------------------------------------------------------------------------
+
+--- Build a single rune button with icon
+---@param playerColor string The player color
+---@param runeData table The rune data { id, name, icon_url }
+---@return table XML table for the rune button
+local function buildRuneButton(playerColor, runeData)
+  return {
+    tag = "Button",
+    attributes = {
+      id = playerColor .. "_runeselect_" .. runeData.id,
+      onClick = "xml_selectRune",
+      color = UITheme.colors.surface,
+      tooltip = runeData.name
+    },
+    children = {
+      {
+        tag = "Image",
+        attributes = {
+          image = runeData.icon_url or "",
+          preserveAspect = true
+        }
+      }
+    }
+  }
+end
+
+-------------------------------------------------------------------------------
+-- Public API
+-------------------------------------------------------------------------------
+
+--- Build the rune selector panel for a player (initially hidden)
+---@param playerColor string The player color
+---@return table XML table for the rune selector panel
+function RuneSelectorUI.build(playerColor)
+  -- Get origin runes for the grid
+  local originRunes = GameState.runesByType.origin or {}
+
+  -- Build rune buttons
+  local runeButtons = {}
+  for _, runeData in ipairs(originRunes) do
+    table.insert(runeButtons, buildRuneButton(playerColor, runeData))
+  end
+
+  -- Grid layout for runes
+  local runeGrid = {
+    tag = "GridLayout",
+    attributes = {
+      id = playerColor .. "_runeselector_grid",
+      cellSize = "50 50",
+      spacing = "6 6",
+      constraint = "FixedColumnCount",
+      constraintCount = 4,
+      childAlignment = "UpperCenter"
+    },
+    children = runeButtons
+  }
+
+  -- Scrollable grid container
+  local scrollView = {
+    tag = "VerticalScrollView",
+    attributes = {
+      preferredHeight = 300,
+      scrollSensitivity = 30
+    },
+    children = { runeGrid }
+  }
+
+  -- Main panel
+  return UIComponents.panel({
+    id = playerColor .. "_runeselector_window",
+    width = 300,
+    height = 400,
+    color = UITheme.colors.surface,
+    alignment = "LowerRight",
+    offset = "-260 100",
+    visibility = playerColor,
+    active = false,
+    outline = UITheme.colors.muted,
+    outlineSize = "1",
+    padding = UITheme.sizes.padding.lg,
+    children = {
+      UIComponents.vLayout({
+        -- Header
+        UIComponents.text({
+          id = playerColor .. "_runeselector_header",
+          text = "Select Rune",
+          fontSize = UITheme.sizes.fontSize.xl,
+          color = UITheme.colors.text,
+          alignment = "MiddleCenter",
+          height = 28
+        }),
+        -- Rune grid
+        scrollView,
+        -- Cancel button
+        UIComponents.button({
+          onClick = "xml_closeRuneSelector",
+          text = "Cancel",
+          preset = "default",
+          fontSize = UITheme.sizes.fontSize.md,
+          height = UITheme.sizes.buttonHeight.md
+        })
+      }, UITheme.sizes.spacing.md)
+    }
+  })
+end
+
+--- Build a dynamically populated rune grid (for runtime updates)
+---@param playerColor string The player color
+---@param runeType string The rune type filter ("origin", "class", or nil for all)
+---@return table List of rune button XML tables
+function RuneSelectorUI.buildRuneButtons(playerColor, runeType)
+  local runes = {}
+
+  if runeType then
+    runes = GameState.runesByType[runeType] or {}
+  else
+    -- Get all runes
+    runes = GameState.runes or {}
+  end
+
+  local buttons = {}
+  for _, runeData in ipairs(runes) do
+    table.insert(buttons, buildRuneButton(playerColor, runeData))
+  end
+
+  return buttons
+end
+
+--- Get all rune IDs for a given type
+---@param runeType string The rune type ("origin" or "class")
+---@return table List of rune IDs
+function RuneSelectorUI.getRuneIds(runeType)
+  local runes = GameState.runesByType[runeType] or {}
+  local ids = {}
+  for _, runeData in ipairs(runes) do
+    table.insert(ids, runeData.id)
+  end
+  return ids
+end
+
+return RuneSelectorUI

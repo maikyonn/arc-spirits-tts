@@ -1,0 +1,232 @@
+-------------------------------------------------------------------------------
+-- GameSyncLib: Sync game state to Supabase after navigation completion
+-------------------------------------------------------------------------------
+
+local GameSyncLib = {}
+
+local GameState = require("state/GameState")
+local PlayerMatLib = require("game/PlayerMatLib")
+local WebRequestLib = require("api/WebRequestLib")
+local UtilLib = require("util/UtilLib")
+
+-------------------------------------------------------------------------------
+-- Configuration
+-------------------------------------------------------------------------------
+
+local SYNC_ENDPOINT = "https://gvxfokbptelmvvlxbigh.supabase.co/functions/v1/sync-game-state"
+local SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd2eGZva2JwdGVsbXZ2bHhiaWdoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTI4NzY4NTAsImV4cCI6MjA2ODQ1Mjg1MH0.QLIyWCf8AGIUDmGlttbqRKrxxBSOBn_B5O-0yuCwlGE"
+
+-------------------------------------------------------------------------------
+-- Helper Functions
+-------------------------------------------------------------------------------
+
+--- Get current timestamp in ISO-8601 format
+---@return string ISO-8601 timestamp
+local function getTimestamp()
+  return os.date("!%Y-%m-%dT%H:%M:%SZ")
+end
+
+--- Get the player's current TTS display name (Steam name)
+---@param playerColor string
+---@return string
+local function getPlayerTtsUsername(playerColor)
+  local player = Player[playerColor]
+  if player and player.steam_name and player.steam_name ~= "" then
+    return player.steam_name
+  end
+  return playerColor
+end
+
+--- Build spirits data for a player from PlayerMatLib state
+---@param playerColor string The player color
+---@return table Array of spirit data
+local function buildPlayerSpirits(playerColor)
+  local spirits = {}
+  local playerState = PlayerMatLib.getState(playerColor)
+
+  if not playerState or not playerState.spirits then
+    return spirits
+  end
+
+  for slotIndex, spirit in pairs(playerState.spirits) do
+    table.insert(spirits, {
+      slotIndex = slotIndex,
+      id = spirit.id,
+      name = spirit.name,
+      cost = spirit.cost,
+      classes = spirit.classes,
+      origins = spirit.origins
+    })
+  end
+
+  return spirits
+end
+
+--- Extract spirit data from a bag's contents
+---@param bag userdata The TTS bag object
+---@return table Array of spirit info { id, name, cost }
+local function extractBagContents(bag)
+  if not bag then return {} end
+
+  local contents = {}
+  local objects = bag.getObjects()
+
+  for _, obj in ipairs(objects) do
+    local spiritInfo = {
+      name = obj.name or obj.nickname or "Unknown",
+      guid = obj.guid
+    }
+
+    -- Try to parse GM notes for additional metadata
+    if obj.gm_notes and obj.gm_notes ~= "" then
+      local success, metadata = pcall(function() return JSON.decode(obj.gm_notes) end)
+      if success and metadata then
+        spiritInfo.id = metadata.id
+        spiritInfo.cost = metadata.cost
+        if metadata.state ~= nil then spiritInfo.state = metadata.state end
+        if metadata.barrier ~= nil then spiritInfo.barrier = metadata.barrier end
+        if metadata.damage ~= nil then spiritInfo.damage = metadata.damage end
+      end
+    end
+
+    table.insert(contents, spiritInfo)
+  end
+
+  return contents
+end
+
+--- Build spirit world bag data
+---@return table Bag info with count and contents
+local function buildHexSpiritsBag()
+  local bag = UtilLib.getObjectByName("Spirit World Bag")
+  if not bag then
+    return { count = 0, contents = {} }
+  end
+
+  return {
+    count = bag.getQuantity(),
+    contents = extractBagContents(bag)
+  }
+end
+
+--- Build monsters bag data
+---@return table Bag info with count and contents
+local function buildMonstersBag()
+  local bag = UtilLib.getObjectByName("Monsters")
+  if not bag then
+    return { count = 0, contents = {} }
+  end
+
+  local count = 0
+  local ok, qty = pcall(function() return bag.getQuantity() end)
+  if ok and qty then
+    count = qty
+  else
+    count = #(bag.getObjects() or {})
+  end
+
+  return {
+    count = count,
+    contents = extractBagContents(bag)
+  }
+end
+
+-------------------------------------------------------------------------------
+-- Public API
+-------------------------------------------------------------------------------
+
+--- Build the full sync payload for all active players
+---@param destinationsByPlayerColor? table Optional snapshot of destinations (playerColor -> destination)
+---@return table The sync payload
+function GameSyncLib.buildSyncPayload(destinationsByPlayerColor)
+  local players = {}
+  local destinations = destinationsByPlayerColor or GameState.destinationPerPlayerColor or {}
+
+  -- Iterate through all players who have selected characters
+  for playerColor, characterName in pairs(GameState.selectedCharacters) do
+    local statusLevel = PlayerMatLib.getStatus(playerColor)
+    local statusToken = GameState.statusTokens and GameState.statusTokens[statusLevel] or nil
+    local playerData = {
+      playerColor = playerColor,
+      ttsUsername = getPlayerTtsUsername(playerColor),
+      navigationDestination = destinations[playerColor],
+      selectedCharacter = characterName,
+      spirits = buildPlayerSpirits(playerColor),
+      runes = PlayerMatLib.getRunes(playerColor),
+      blood = PlayerMatLib.getBlood(playerColor),
+      victoryPoints = PlayerMatLib.getVictoryPoints(playerColor),
+      barrier = PlayerMatLib.getBarrier(playerColor),
+      barrierTokens = PlayerMatLib.getBarrier(playerColor),
+      statusLevel = statusLevel,
+      statusToken = statusToken and statusToken.name or nil,
+      handDraws = (GameState.handDrawsThisNavigation and GameState.handDrawsThisNavigation[playerColor]) or {}
+    }
+    table.insert(players, playerData)
+  end
+
+  return {
+    gameId = GameState.gameId,
+    timestamp = getTimestamp(),
+    navigationCount = GameState.navigationCount,
+    players = players,
+    bags = {
+      hexSpirits = buildHexSpiritsBag(),
+      monsters = buildMonstersBag()
+    }
+  }
+end
+
+--- Sync game state to Supabase after navigation completion
+--- Called automatically when all players complete navigation selection
+---@param destinationsByPlayerColor? table Optional snapshot of destinations (playerColor -> destination)
+function GameSyncLib.syncAfterNavigation(destinationsByPlayerColor)
+  -- Increment navigation count
+  GameState.navigationCount = GameState.navigationCount + 1
+
+  if GameState.DEBUG_MODE and destinationsByPlayerColor then
+    GameState.debugPrint("[GameSyncLib] Sync destinations snapshot: " .. JSON.encode(destinationsByPlayerColor))
+  end
+
+  local payload = GameSyncLib.buildSyncPayload(destinationsByPlayerColor)
+
+  local headers = {
+    ["Authorization"] = "Bearer " .. SUPABASE_ANON_KEY,
+    ["apikey"] = SUPABASE_ANON_KEY
+  }
+
+  WebRequestLib.post(
+    SYNC_ENDPOINT,
+    payload,
+    function(response)
+      GameState.debugPrint("[GameSyncLib] Sync successful: " .. (response or ""))
+    end,
+    function(errorMessage, responseCode)
+      print("[GameSyncLib] Sync failed: " .. errorMessage)
+    end,
+    headers
+  )
+end
+
+--- Manual sync (can be called from UI or debug)
+function GameSyncLib.manualSync()
+  local payload = GameSyncLib.buildSyncPayload()
+
+  local headers = {
+    ["Authorization"] = "Bearer " .. SUPABASE_ANON_KEY,
+    ["apikey"] = SUPABASE_ANON_KEY
+  }
+
+  WebRequestLib.post(
+    SYNC_ENDPOINT,
+    payload,
+    function(response)
+      print("[GameSyncLib] Manual sync successful")
+    end,
+    function(errorMessage, responseCode)
+      print("[GameSyncLib] Manual sync failed: " .. errorMessage)
+    end,
+    headers
+  )
+end
+
+return GameSyncLib

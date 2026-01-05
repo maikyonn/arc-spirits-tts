@@ -1,0 +1,316 @@
+-------------------------------------------------------------------------------
+-- LobbyUI: Character select panel for lobby state
+-- Full-screen character selection with 3x2 grid and asset-based images
+-------------------------------------------------------------------------------
+
+local UITheme = require("ui/UITheme")
+local GameState = require("state/GameState")
+
+local LobbyUI = {}
+
+-------------------------------------------------------------------------------
+-- Constants
+-------------------------------------------------------------------------------
+
+local VALID_PLAYER_COLORS = { "Red", "Orange", "Yellow", "Green", "Blue", "Purple" }
+
+-- Layout constants (percentages of panel size)
+-- Background is 3000x1816 (aspect 1.652)
+-- Character cards are 655x700 (aspect 0.936)
+local PANEL_WIDTH = 1500
+local PANEL_HEIGHT = 1100
+
+-- Grid layout: 3 columns x 2 rows (6 characters)
+local GRID_COLS = 3
+local GRID_ROWS = 2
+local CARD_WIDTH = 312   -- 20% smaller
+local CARD_HEIGHT = 334  -- Card height (312 / 0.936 aspect)
+local CARD_SPACING_X = 72   -- 20% less spacing
+local CARD_SPACING_Y = 61   -- 20% less spacing
+
+-- Calculate grid dimensions
+local GRID_WIDTH = (CARD_WIDTH * GRID_COLS) + (CARD_SPACING_X * (GRID_COLS - 1))
+local GRID_HEIGHT = (CARD_HEIGHT * GRID_ROWS) + (CARD_SPACING_Y * (GRID_ROWS - 1))
+
+-- Grid offset from center (negative = push toward top)
+local GRID_OFFSET_Y = -30
+
+-------------------------------------------------------------------------------
+-- Helper Functions
+-------------------------------------------------------------------------------
+
+--- Get the visibility string for valid player colors
+---@return string Pipe-separated player colors
+local function getPlayerVisibility()
+  return table.concat(VALID_PLAYER_COLORS, "|")
+end
+
+--- Get the character select ASSET NAME based on selection state
+--- Uses named assets registered via UI.setCustomAssets for proper caching
+---@param charName string Character name
+---@return string baseAsset The base (unselected) asset name
+---@return string|nil selectedAsset The selected variant asset name if selected, nil otherwise
+---@return string|nil selectedBy The player color who selected this character, nil if not selected
+local function getCharacterImageAsset(charName)
+  -- Asset names match those registered in AssetLoaderLib.preloadAllImages()
+  local baseAsset = "charselect_" .. charName
+
+  -- Check if selected by any player
+  for playerColor, selectedChar in pairs(GameState.selectedCharacters) do
+    if selectedChar == charName then
+      -- Use the color-specific asset based on the player who selected
+      -- Format: charselect_Red_CharName, charselect_Blue_CharName, etc.
+      local selectedAsset = "charselect_" .. playerColor .. "_" .. charName
+      return baseAsset, selectedAsset, playerColor
+    end
+  end
+
+  -- Not selected
+  return baseAsset, nil, nil
+end
+
+--- Calculate card position in the grid
+---@param index number 1-based index of the character
+---@return number x X offset from center
+---@return number y Y offset from center
+local function getCardPosition(index)
+  local col = ((index - 1) % GRID_COLS)  -- 0-4
+  local row = math.floor((index - 1) / GRID_COLS)  -- 0-1
+
+  -- Calculate position relative to grid center
+  local gridCenterX = (GRID_COLS - 1) / 2  -- 2 (middle column)
+  local gridCenterY = (GRID_ROWS - 1) / 2  -- 0.5 (between rows)
+
+  local x = (col - gridCenterX) * (CARD_WIDTH + CARD_SPACING_X)
+  local y = (row - gridCenterY) * (CARD_HEIGHT + CARD_SPACING_Y) + GRID_OFFSET_Y
+
+  return x, y
+end
+
+--- Build a single character card as an image button
+---@param charName string The character name
+---@param index number The 1-based index in the grid
+---@return table XML element for the character card
+local function buildCharacterCard(charName, index)
+  local x, y = getCardPosition(index)
+  local baseAsset, selectedAsset, selectedBy = getCharacterImageAsset(charName)
+
+  -- Use selected asset name if selected, otherwise base asset name
+  -- Using asset names (not URLs) enables TTS caching via UI.setCustomAssets
+  local imageAsset = selectedAsset or baseAsset
+
+  -- Selected cards are 20% bigger
+  local isSelected = selectedAsset ~= nil
+  local scale = isSelected and 1.2 or 1.0
+  local cardWidth = CARD_WIDTH * scale
+  local cardHeight = CARD_HEIGHT * scale
+
+  -- Build the card as an image button
+  -- Colors: Normal|Hover|Pressed|Disabled - all white to show image without tint
+  return {
+    tag = "Button",
+    attributes = {
+      id = "btn_char_" .. charName,
+      onClick = "xml_selectCharacter",
+      image = imageAsset,
+      colors = "#FFFFFF|#FFFFFF|#FFFFFF|#FFFFFF",
+      width = cardWidth,
+      height = cardHeight,
+      offsetXY = x .. " " .. (-y),  -- Negative Y because TTS Y is inverted
+      rectAlignment = "MiddleCenter"
+    }
+  }
+end
+
+-- Title removed per user request
+
+--- Build player status indicators
+---@return table XML element for the status bar
+local function buildPlayerStatus()
+  local statusParts = {}
+  for _, playerColor in ipairs(VALID_PLAYER_COLORS) do
+    local selectedChar = GameState.selectedCharacters[playerColor]
+    if selectedChar then
+      table.insert(statusParts, "[" .. playerColor .. ": " .. selectedChar .. "]")
+    end
+  end
+
+  local statusText = #statusParts > 0 and table.concat(statusParts, "  ") or "No players selected"
+
+  return {
+    tag = "Text",
+    attributes = {
+      id = "lobby_status_text",
+      text = statusText,
+      fontSize = UITheme.sizes.fontSize.lg,
+      font = UITheme.fonts and UITheme.fonts.primary or "font_opsilon/opsilon-regular",
+      color = "White",
+      outline = "Black",
+      outlineSize = 1,
+      alignment = "MiddleCenter",
+      offsetXY = "0 " .. (-PANEL_HEIGHT / 2 + 100),
+      rectAlignment = "MiddleCenter",
+      width = PANEL_WIDTH,
+      height = 30
+    }
+  }
+end
+
+--- Build the Start Game button
+---@return table XML element for the start button
+local function buildStartButton()
+  return {
+    tag = "Button",
+    attributes = {
+      id = "btn_start_game",
+      onClick = "xml_startGame",
+      color = UITheme.colors.success,
+      width = 200,
+      height = 50,
+      offsetXY = "0 " .. (-PANEL_HEIGHT / 2 + 130),  -- Moved up to where status text was
+      rectAlignment = "MiddleCenter"
+    },
+    children = {
+      {
+        tag = "Text",
+        attributes = {
+          text = "Start Game",
+          fontSize = UITheme.sizes.fontSize.xxl,
+          font = UITheme.fonts and UITheme.fonts.primary or "font_opsilon/opsilon-regular",
+          fontStyle = "Bold",
+          color = "White",
+          alignment = "MiddleCenter",
+          resizeTextForBestFit = true,
+          resizeTextMinSize = UITheme.sizes.fontSize.sm
+        }
+      }
+    }
+  }
+end
+
+-------------------------------------------------------------------------------
+-- Public API
+-------------------------------------------------------------------------------
+
+--- Build a hidden preload panel that forces TTS to download ALL character images
+--- This includes base images and all 6 color variants for each character
+---@return table XML element for the hidden preload panel
+local function buildPreloadPanel()
+  return nil
+end
+
+--- Build the complete character select panel XML
+---@return table XML element for the character select panel
+function LobbyUI.build()
+  local isActive = not GameState.gameStarted
+
+  -- Build character cards
+  local children = {}
+
+  -- Background overlay removed per user request
+
+  -- Title removed per user request
+
+  -- Add character cards in 3x2 grid
+  local charIndex = 1
+  for _, charName in ipairs(GameState.availableCharacters) do
+    if charIndex <= GRID_COLS * GRID_ROWS then  -- Max 6 characters
+      table.insert(children, buildCharacterCard(charName, charIndex))
+      charIndex = charIndex + 1
+    end
+  end
+
+  -- Player status removed per user request
+
+  -- Add start button
+  table.insert(children, buildStartButton())
+
+  -- Note: Legacy flow preloads images before UI is created, so no hidden preload panel needed here.
+
+  return {
+    tag = "Panel",
+    attributes = {
+      id = "character_select_panel",
+      width = PANEL_WIDTH,
+      height = PANEL_HEIGHT,
+      color = "rgba(0,0,0,0)",  -- Transparent so image shows
+      rectAlignment = "MiddleCenter",
+      visibility = getPlayerVisibility(),
+      active = isActive and "true" or "false"
+    },
+    children = children
+  }
+end
+
+--- Update a specific character card's image based on selection state
+---@param charName string The character name to update
+function LobbyUI.updateCharacterCard(charName)
+  local baseAsset, selectedAsset, _ = getCharacterImageAsset(charName)
+  local imageAsset = selectedAsset or baseAsset
+  local buttonId = "btn_char_" .. charName
+  UI.setAttribute(buttonId, "image", imageAsset)
+end
+
+--- Update all character cards (called after selection changes)
+function LobbyUI.updateAllCharacterCards()
+  for _, charName in ipairs(GameState.availableCharacters) do
+    LobbyUI.updateCharacterCard(charName)
+  end
+end
+
+--- Update player status text
+function LobbyUI.updatePlayerStatus()
+  local statusParts = {}
+  for _, playerColor in ipairs(VALID_PLAYER_COLORS) do
+    local selectedChar = GameState.selectedCharacters[playerColor]
+    if selectedChar then
+      table.insert(statusParts, "[" .. playerColor .. ": " .. selectedChar .. "]")
+    end
+  end
+
+  local statusText = #statusParts > 0 and table.concat(statusParts, "  ") or "No players selected"
+  UI.setAttribute("lobby_status_text", "text", statusText)
+end
+
+-- Legacy compatibility - redirect to new functions
+function LobbyUI.updateCharacterButton(charName)
+  LobbyUI.updateCharacterCard(charName)
+end
+
+function LobbyUI.updateAllCharacterButtons()
+  LobbyUI.updateAllCharacterCards()
+end
+
+function LobbyUI.updatePlayerIndicators()
+  LobbyUI.updatePlayerStatus()
+end
+
+--- Show the character select panel
+function LobbyUI.show()
+  UI.setAttribute("character_select_panel", "active", true)
+end
+
+--- Hide the character select panel
+function LobbyUI.hide()
+  UI.setAttribute("character_select_panel", "active", false)
+end
+
+--- Check if a player color is valid for character selection
+---@param playerColor string The player color to check
+---@return boolean True if the player can select characters
+function LobbyUI.isValidPlayerColor(playerColor)
+  for _, validColor in ipairs(VALID_PLAYER_COLORS) do
+    if playerColor == validColor then
+      return true
+    end
+  end
+  return false
+end
+
+--- Get the list of valid player colors
+---@return table Array of valid player color strings
+function LobbyUI.getValidPlayerColors()
+  return VALID_PLAYER_COLORS
+end
+
+return LobbyUI

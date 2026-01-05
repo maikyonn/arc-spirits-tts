@@ -1,0 +1,87 @@
+-------------------------------------------------------------------------------
+-- UITheme: Centralized theme constants for UI styling
+-- Industry-standard 5-color palette inspired by Material Design / Tailwind
+-------------------------------------------------------------------------------
+
+local UITheme = {}
+
+-------------------------------------------------------------------------------
+-- Typography
+-------------------------------------------------------------------------------
+
+UITheme.fonts = {
+  primary = "font_opsilon/opsilon-regular",
+  italic = "font_opsilon/opsilon-italic"
+}
+
+-------------------------------------------------------------------------------
+-- Colors - Simplified 5-Color System
+-------------------------------------------------------------------------------
+
+UITheme.colors = {
+  -- CORE PALETTE (5 colors)
+  background = "#0a0a12",    -- Darkest - main background
+  surface = "#1a1a2e",       -- Panels, cards, elevated content
+  primary = "#4a6fa5",       -- Accent color for actions, highlights
+  text = "White",            -- Primary text
+  muted = "#666666",         -- Secondary text, borders, disabled states
+
+  -- SEMANTIC VARIANTS (derived from core)
+  success = "#2d5d2d",       -- Green - confirm, start game, positive actions
+  danger = "#5d2d2d",        -- Red - reset, delete, warnings, destructive actions
+
+  -- BREAKPOINTS (game-specific progression tiers)
+  breakpoints = {
+    bronze = "#cd7f32",
+    silver = "#c0c0c0",
+    gold = "#ffd700",
+    prismatic = "#ff69b4"
+  }
+}
+
+-------------------------------------------------------------------------------
+-- Sizes
+-------------------------------------------------------------------------------
+
+UITheme.sizes = {
+  fontSize = { xs = 12, sm = 14, md = 16, lg = 18, xl = 20, xxl = 24, huge = 28 },
+  spacing = { xs = 2, sm = 4, md = 8, lg = 12 },
+  padding = {
+    xs = "2 2 2 2",
+    sm = "4 4 4 4",
+    md = "8 8 8 8",
+    lg = "12 12 12 12",
+    xl = "20 20 20 20"
+  },
+  buttonHeight = { sm = 28, md = 36, lg = 44 }
+}
+
+-------------------------------------------------------------------------------
+-- Positions
+-------------------------------------------------------------------------------
+
+UITheme.positions = {
+  sidebar = { alignment = "LowerRight", offset = "-5 10", width = 240, height = 560 },
+  debugPanel = { alignment = "MiddleCenter", width = 400, height = 580 },
+  diceSpawner = { alignment = "MiddleCenter", width = 400, height = 600 },
+  runeSelector = { alignment = "LowerRight", offset = "-260 100", width = 300, height = 400 },
+  characterSelect = { alignment = "MiddleCenter", width = 800, height = 600 }
+}
+
+-------------------------------------------------------------------------------
+-- Valid Player Colors (TTS-specific)
+-------------------------------------------------------------------------------
+
+UITheme.validPlayerColors = { "Red", "Orange", "Yellow", "Green", "Blue", "Purple" }
+
+-------------------------------------------------------------------------------
+-- Helper Functions
+-------------------------------------------------------------------------------
+
+--- Get the visibility string for all valid player colors
+---@return string Pipe-separated player colors for XML visibility
+function UITheme.getPlayerVisibility()
+  return table.concat(UITheme.validPlayerColors, "|")
+end
+
+return UITheme

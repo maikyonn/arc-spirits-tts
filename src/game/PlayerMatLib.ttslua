@@ -1,0 +1,811 @@
+-------------------------------------------------------------------------------
+-- PlayerMatLib: Central player mat state management
+-- Tracks spirits, tokens, and aggregated class/origin counts per player
+-------------------------------------------------------------------------------
+
+local GameState = require("state/GameState")
+local SearchLib = require("util/SearchLib")
+
+local PlayerMatLib = {}
+
+-- Per-player state
+local state = {}
+
+-------------------------------------------------------------------------------
+-- Snap Point Positions (local coordinates on playermat)
+-------------------------------------------------------------------------------
+
+-- HexSpirit snap positions (7 slots)
+local SPIRIT_SNAP_POSITIONS = {
+  Vector(1.156, 0.1, -0.607),
+  Vector(1.683, 0.1, -0.301),
+  Vector(1.682, 0.1, 0.309),
+  Vector(1.151, 0.1, 0.005),
+  Vector(1.154, 0.1, 0.61),
+  Vector(0.628, 0.1, 0.31),
+  Vector(0.627, 0.1, -0.302)
+}
+
+-- Rune snap positions (4 slots)
+local RUNE_SNAP_POSITIONS = {
+  Vector(0.176, 0.1, -0.034),
+  Vector(0.013, 0.1, -0.279),
+  Vector(-0.141, 0.1, -0.515),
+  Vector(-0.284, 0.1, -0.764)
+}
+
+-- Status token snap position (tokens stack here)
+local STATUS_SNAP_POSITION = Vector(0.378, 0.1, -0.644)
+
+-- Barrier snap positions (10 slots from left to right)
+local BARRIER_SNAP_POSITIONS = {}
+local BARRIER_LEFT_X = -1.868
+local BARRIER_RIGHT_X = -0.114
+local BARRIER_Y = 0.1
+local BARRIER_Z = 0.857
+local TOTAL_BARRIER_SLOTS = 10
+
+for i = 1, TOTAL_BARRIER_SLOTS do
+  local t = (i - 1) / (TOTAL_BARRIER_SLOTS - 1)
+  local x = BARRIER_LEFT_X + t * (BARRIER_RIGHT_X - BARRIER_LEFT_X)
+  table.insert(BARRIER_SNAP_POSITIONS, Vector(x, BARRIER_Y, BARRIER_Z))
+end
+
+-- Special Spirit snap positions (6 slots - larger 2x2 spirits)
+local SPECIAL_SPIRIT_SNAP_POSITIONS = {
+  Vector(1.88, 0.1, -0.607),
+  Vector(1.88, 0.1, 0.005),
+  Vector(1.88, 0.1, 0.61),
+  Vector(1.35, 0.1, -0.607),
+  Vector(1.35, 0.1, 0.005),
+  Vector(1.35, 0.1, 0.61)
+}
+
+-- Tolerance for snap detection (in local units)
+local SNAP_TOLERANCE = 0.15
+
+-------------------------------------------------------------------------------
+-- Centralized Snap Point Configuration
+-- Single source of truth for all snap positions used across the codebase
+-------------------------------------------------------------------------------
+
+--- Generate AttachedSnapPoints array for playermat spawning
+--- This ensures dynamically spawned mats have the same snap points as JSON-defined mats
+---@return table AttachedSnapPoints array for use in spawnObjectData
+function PlayerMatLib.generateSnapPointsData()
+  local snapPoints = {}
+
+  -- Add HexSpirit snap points (7)
+  for _, pos in ipairs(SPIRIT_SNAP_POSITIONS) do
+    table.insert(snapPoints, {
+      Position = { x = pos.x, y = pos.y, z = pos.z },
+      Rotation = { x = 0, y = 0, z = 0 },
+      Tags = { "HexSpirit" }
+    })
+  end
+
+  -- Add Rune snap points (4)
+  for _, pos in ipairs(RUNE_SNAP_POSITIONS) do
+    table.insert(snapPoints, {
+      Position = { x = pos.x, y = pos.y, z = pos.z },
+      Rotation = { x = 0, y = 315, z = 0 },
+      Tags = { "Rune" }
+    })
+  end
+
+  -- Add Status snap point (1)
+  table.insert(snapPoints, {
+    Position = { x = STATUS_SNAP_POSITION.x, y = STATUS_SNAP_POSITION.y, z = STATUS_SNAP_POSITION.z },
+    Rotation = { x = 0, y = 0, z = 0 },
+    Tags = { "Status" }
+  })
+
+  -- Add Barrier snap points (10)
+  for _, pos in ipairs(BARRIER_SNAP_POSITIONS) do
+    table.insert(snapPoints, {
+      Position = { x = pos.x, y = pos.y, z = pos.z },
+      Rotation = { x = 0, y = 0, z = 0 },
+      Tags = { "Barrier" }
+    })
+  end
+
+  -- Add SpecialSpirit snap points (6)
+  for _, pos in ipairs(SPECIAL_SPIRIT_SNAP_POSITIONS) do
+    table.insert(snapPoints, {
+      Position = { x = pos.x, y = pos.y, z = pos.z },
+      Rotation = { x = 0, y = 0, z = 0 },
+      Tags = { "SpecialSpirit" }
+    })
+  end
+
+  return snapPoints
+end
+
+--- Get all snap positions for a specific type
+---@param snapType string One of: "HexSpirit", "Rune", "Status", "Barrier", "SpecialSpirit"
+---@return table Array of Vector positions
+function PlayerMatLib.getSnapPositions(snapType)
+  if snapType == "HexSpirit" then
+    return SPIRIT_SNAP_POSITIONS
+  elseif snapType == "Rune" then
+    return RUNE_SNAP_POSITIONS
+  elseif snapType == "Status" then
+    return { STATUS_SNAP_POSITION }
+  elseif snapType == "Barrier" then
+    return BARRIER_SNAP_POSITIONS
+  elseif snapType == "SpecialSpirit" then
+    return SPECIAL_SPIRIT_SNAP_POSITIONS
+  end
+  return {}
+end
+
+--- Get the total number of barrier slots
+---@return number
+function PlayerMatLib.getTotalBarrierSlots()
+  return TOTAL_BARRIER_SLOTS
+end
+
+-------------------------------------------------------------------------------
+-- State Structure (per player)
+-------------------------------------------------------------------------------
+-- state[playerColor] = {
+--   matGUID = "...",
+--   matObject = nil,
+--   spirits = { [slotIndex] = { guid, id, name, cost, classes, origins } },
+--   totals = { classes = {}, origins = {} }
+-- }
+-- NOTE: blood and victoryPoints are now stored in GameState.playerResources
+-- for persistence across saves/undo
+
+-------------------------------------------------------------------------------
+-- Public API
+-------------------------------------------------------------------------------
+
+function PlayerMatLib.registerPlayerMat(playerColor, matObject)
+  state[playerColor] = {
+    matGUID = matObject.getGUID(),
+    matObject = matObject,
+    spirits = {},
+    totals = { classes = {}, origins = {} }
+  }
+  -- Initialize player resources in GameState if not already present
+  GameState.initPlayerResources(playerColor)
+
+  -- Ensure barrier tokens match the current resource count once the mat exists
+  PlayerMatLib.syncBarrierTokens(playerColor)
+end
+
+function PlayerMatLib.getState(playerColor)
+  return state[playerColor]
+end
+
+function PlayerMatLib.getPlayerMatObject(playerColor)
+  if state[playerColor] then
+    return state[playerColor].matObject
+  end
+  return nil
+end
+
+function PlayerMatLib.getTotals(playerColor)
+  if state[playerColor] then
+    return state[playerColor].totals
+  end
+  return { classes = {}, origins = {} }
+end
+
+-------------------------------------------------------------------------------
+-- Resource Tracking (Blood & Victory Points)
+-------------------------------------------------------------------------------
+
+--- Get player's Arcane Blood count
+---@param playerColor string The player color
+---@return number Blood count
+function PlayerMatLib.getBlood(playerColor)
+  return GameState.getPlayerResource(playerColor, "blood")
+end
+
+--- Set player's Arcane Blood count
+---@param playerColor string The player color
+---@param amount number The new blood amount
+function PlayerMatLib.setBlood(playerColor, amount)
+  GameState.setPlayerResource(playerColor, "blood", math.max(0, amount))
+  PlayerMatLib.notifyUIUpdate(playerColor)
+end
+
+--- Adjust player's Arcane Blood count
+---@param playerColor string The player color
+---@param delta number Amount to add (negative to subtract)
+function PlayerMatLib.adjustBlood(playerColor, delta)
+  local current = GameState.getPlayerResource(playerColor, "blood")
+  GameState.setPlayerResource(playerColor, "blood", math.max(0, current + delta))
+  PlayerMatLib.notifyUIUpdate(playerColor)
+end
+
+--- Get player's Victory Points count
+---@param playerColor string The player color
+---@return number Victory points count
+function PlayerMatLib.getVictoryPoints(playerColor)
+  return GameState.getPlayerResource(playerColor, "victoryPoints")
+end
+
+--- Set player's Victory Points count
+---@param playerColor string The player color
+---@param amount number The new VP amount
+function PlayerMatLib.setVictoryPoints(playerColor, amount)
+  GameState.setPlayerResource(playerColor, "victoryPoints", math.max(0, amount))
+  PlayerMatLib.notifyUIUpdate(playerColor)
+end
+
+--- Adjust player's Victory Points count
+---@param playerColor string The player color
+---@param delta number Amount to add (negative to subtract)
+function PlayerMatLib.adjustVictoryPoints(playerColor, delta)
+  local current = GameState.getPlayerResource(playerColor, "victoryPoints")
+  GameState.setPlayerResource(playerColor, "victoryPoints", math.max(0, current + delta))
+  PlayerMatLib.notifyUIUpdate(playerColor)
+end
+
+--- Get player's Barrier count
+---@param playerColor string The player color
+---@return number Barrier count
+function PlayerMatLib.getBarrier(playerColor)
+  return GameState.getPlayerResource(playerColor, "barrier")
+end
+
+--- Set player's Barrier count
+---@param playerColor string The player color
+---@param amount number The new barrier amount
+function PlayerMatLib.setBarrier(playerColor, amount)
+  GameState.setPlayerResource(playerColor, "barrier", math.max(0, amount))
+  PlayerMatLib.notifyUIUpdate(playerColor)
+  PlayerMatLib.syncBarrierTokens(playerColor)
+end
+
+--- Adjust player's Barrier count
+---@param playerColor string The player color
+---@param delta number Amount to add (negative to subtract)
+function PlayerMatLib.adjustBarrier(playerColor, delta)
+  local current = GameState.getPlayerResource(playerColor, "barrier")
+  GameState.setPlayerResource(playerColor, "barrier", math.max(0, current + delta))
+  PlayerMatLib.notifyUIUpdate(playerColor)
+  PlayerMatLib.syncBarrierTokens(playerColor)
+end
+
+--- Get player's Status level (1-4)
+---@param playerColor string The player color
+---@return number Status level
+function PlayerMatLib.getStatus(playerColor)
+  return GameState.getPlayerResource(playerColor, "status")
+end
+
+--- Set player's Status level (clamped 1-4)
+---@param playerColor string The player color
+---@param level number The new status level
+function PlayerMatLib.setStatus(playerColor, level)
+  local clamped = math.max(1, math.min(4, level))
+  GameState.setPlayerResource(playerColor, "status", clamped)
+  PlayerMatLib.notifyUIUpdate(playerColor)
+end
+
+--- Adjust player's Status level (clamped 1-4)
+---@param playerColor string The player color
+---@param delta number Amount to add (negative to subtract)
+function PlayerMatLib.adjustStatus(playerColor, delta)
+  local current = GameState.getPlayerResource(playerColor, "status")
+  PlayerMatLib.setStatus(playerColor, current + delta)
+end
+
+-------------------------------------------------------------------------------
+-- Barrier Token Sync (UI-controlled)
+-------------------------------------------------------------------------------
+
+--- Ensure the number of barrier tokens on a player's mat matches their barrier count.
+--- Tokens are spawned/removed on Barrier snap positions and locked to prevent manual movement.
+---@param playerColor string The player color
+function PlayerMatLib.syncBarrierTokens(playerColor)
+  local playerState = state[playerColor]
+  if not playerState or not playerState.matObject then
+    return
+  end
+
+  local matObject = playerState.matObject
+  local matRotation = matObject.getRotation()
+  local barrierUrl = GameState.resourceIcons and GameState.resourceIcons.barrier or nil
+  if not barrierUrl or barrierUrl == "" then
+    return
+  end
+
+  local desired = PlayerMatLib.getBarrier(playerColor)
+  local positions = PlayerMatLib.getSnapPositions("Barrier")
+  local maxSlots = #positions
+  if maxSlots == 0 then
+    return
+  end
+
+  desired = math.max(0, math.min(desired, maxSlots))
+
+  -- Remove extra barrier tokens (right to left)
+  for slotIndex = maxSlots, desired + 1, -1 do
+    local worldPos = matObject.positionToWorld(positions[slotIndex])
+    local hits = SearchLib.atPosition(worldPos, "isBarrier")
+    for _, obj in ipairs(hits) do
+      if obj and obj.getGUID() then
+        obj.destruct()
+      end
+    end
+  end
+
+  -- Ensure required barrier tokens exist and are locked (left to right)
+  for slotIndex = 1, desired do
+    local worldPos = matObject.positionToWorld(positions[slotIndex])
+    local hits = SearchLib.atPosition(worldPos, "isBarrier")
+
+    if #hits == 0 then
+      local tokenData = {
+        Name = "Custom_Tile",
+        Transform = {
+          posX = worldPos.x,
+          posY = worldPos.y,
+          posZ = worldPos.z,
+          rotX = 0,
+          rotY = matRotation.y,
+          rotZ = 0,
+          scaleX = 1,
+          scaleY = 1,
+          scaleZ = 1
+        },
+        Nickname = "",
+        Tags = { "Barrier" },
+        Locked = true,
+        Snap = true,
+        Sticky = true,
+        Grid = true,
+        Autoraise = true,
+        ColorDiffuse = { r = 0, g = 0, b = 0 },
+        CustomImage = {
+          ImageURL = barrierUrl,
+          ImageSecondaryURL = "",
+          ImageScalar = 1,
+          WidthScale = 0,
+          CustomTile = {
+            Type = 2,
+            Thickness = 0.2,
+            Stackable = false,
+            Stretch = true
+          }
+        }
+      }
+
+      local spawned = spawnObjectData({ data = tokenData })
+      if spawned and spawned.getGUID() then
+        spawned.setLock(true)
+      end
+    else
+      -- Lock one token, remove any duplicates in the same slot
+      local keep = hits[1]
+      if keep and keep.getGUID() then
+        keep.setRotation({ 0, matRotation.y, 0 })
+        keep.setLock(true)
+      end
+
+      if #hits > 1 then
+        for i = 2, #hits do
+          local extra = hits[i]
+          if extra and extra.getGUID() then
+            extra.destruct()
+          end
+        end
+      end
+    end
+  end
+end
+
+--- Get effective trait totals (base from spirits only, no modifiers)
+--- If Origin Destiny is activated, returns only Defender: 2
+---@param playerColor string The player color
+---@return table Effective class totals
+function PlayerMatLib.getEffectiveTraits(playerColor)
+  -- Check if origin destiny is activated - if so, block all class traits
+  local originDestinyState = nil
+  if GameState and GameState.originDestinyActive then
+    originDestinyState = GameState.originDestinyActive[playerColor]
+  end
+
+  if originDestinyState and originDestinyState.activated then
+    -- Return ONLY Defender: 2, no other class traits
+    return { Defender = 2 }
+  end
+
+  -- Return base totals directly (no modifiers)
+  local baseTotals = PlayerMatLib.getTotals(playerColor)
+  local effectiveClasses = {}
+
+  for className, count in pairs(baseTotals.classes or {}) do
+    if count > 0 then
+      effectiveClasses[className] = count
+    end
+  end
+
+  return effectiveClasses
+end
+
+
+-------------------------------------------------------------------------------
+-- Snap Position Helpers
+-------------------------------------------------------------------------------
+
+--- Check if a world position is at a specific snap point on a mat
+---@param matObject object The player mat object
+---@param worldPos Vector The world position to check
+---@param localSnapPos Vector The local snap position on the mat
+---@return boolean True if position matches the snap point
+local function isAtSnapPosition(matObject, worldPos, localSnapPos)
+  local snapWorldPos = matObject.positionToWorld(localSnapPos)
+  local dx = math.abs(worldPos.x - snapWorldPos.x)
+  local dz = math.abs(worldPos.z - snapWorldPos.z)
+  return dx < SNAP_TOLERANCE and dz < SNAP_TOLERANCE
+end
+
+--- Find which spirit slot an object is in (if any)
+---@param matObject object The player mat object
+---@param worldPos Vector The world position to check
+---@return number|nil Slot index (1-7) or nil if not in a slot
+local function findSpiritSlot(matObject, worldPos)
+  for i, snapPos in ipairs(SPIRIT_SNAP_POSITIONS) do
+    if isAtSnapPosition(matObject, worldPos, snapPos) then
+      return i
+    end
+  end
+  return nil
+end
+
+--- Find which rune slot an object is in (if any)
+---@param matObject object The player mat object
+---@param worldPos Vector The world position to check
+---@return number|nil Slot index (1-4) or nil if not in a slot
+local function findRuneSlot(matObject, worldPos)
+  for i, snapPos in ipairs(RUNE_SNAP_POSITIONS) do
+    if isAtSnapPosition(matObject, worldPos, snapPos) then
+      return i
+    end
+  end
+  return nil
+end
+
+-------------------------------------------------------------------------------
+-- Spirit Tracking Functions (Snap-Based)
+-------------------------------------------------------------------------------
+
+--- Rescan all spirit slots on a player's mat and update state
+---@param playerColor string The player color
+function PlayerMatLib.rescanSpirits(playerColor)
+  local playerState = state[playerColor]
+  if not playerState or not playerState.matObject then return end
+
+  local matObject = playerState.matObject
+  playerState.spirits = {}
+
+  -- Check each spirit snap position
+  for slotIndex, snapPos in ipairs(SPIRIT_SNAP_POSITIONS) do
+    local worldPos = matObject.positionToWorld(snapPos)
+    local hits = SearchLib.atPosition(worldPos, "isHexSpirit")
+
+    if #hits > 0 then
+      local spiritObj = hits[1]
+      local notes = spiritObj.getGMNotes() or ""
+      local metadata = {}
+      if notes ~= "" then
+        local success, result = pcall(function() return JSON.decode(notes) end)
+        if success and result then
+          metadata = result
+        end
+      end
+
+      playerState.spirits[slotIndex] = {
+        guid = spiritObj.getGUID(),
+        id = metadata.id,
+        name = spiritObj.getName(),
+        cost = metadata.cost,
+        classes = metadata.classes or {},
+        origins = metadata.origins or {}
+      }
+    end
+  end
+
+  PlayerMatLib.recalculateTotals(playerColor)
+end
+
+-------------------------------------------------------------------------------
+-- Rune Tracking Functions (Snap-Based)
+-------------------------------------------------------------------------------
+
+--- Get rune data for the 4 rune slots on a player's mat
+---@param playerColor string The player color
+---@return table Array of rune slot entries (slotIndex + rune metadata if present)
+function PlayerMatLib.getRunes(playerColor)
+  local playerState = state[playerColor]
+  if not playerState or not playerState.matObject then return {} end
+
+  local matObject = playerState.matObject
+  local runes = {}
+
+  for slotIndex, snapPos in ipairs(RUNE_SNAP_POSITIONS) do
+    local worldPos = matObject.positionToWorld(snapPos)
+    local hits = SearchLib.atPosition(worldPos, "isRune")
+    local runeEntry = { slotIndex = slotIndex, hasRune = false }
+
+    if #hits > 0 then
+      local runeObj = hits[1]
+      local metadata = {}
+      local notes = runeObj.getGMNotes() or ""
+      if notes ~= "" then
+        local success, result = pcall(function() return JSON.decode(notes) end)
+        if success and result then
+          metadata = result
+        end
+      end
+
+      runeEntry.hasRune = true
+      runeEntry.guid = runeObj.getGUID()
+      runeEntry.id = metadata.id
+      runeEntry.name = runeObj.getName()
+      runeEntry.type = metadata.type
+      runeEntry.originId = metadata.originId
+      runeEntry.classId = metadata.classId
+    end
+
+    table.insert(runes, runeEntry)
+  end
+
+  return runes
+end
+
+--- Add a spirit to a player's tracked state (checks if in valid slot)
+---@param playerColor string The player color
+---@param spiritObj object The spirit object being added
+function PlayerMatLib.addSpirit(playerColor, spiritObj)
+  local playerState = state[playerColor]
+  if not playerState or not playerState.matObject then return end
+
+  local worldPos = spiritObj.getPosition()
+  local slotIndex = findSpiritSlot(playerState.matObject, worldPos)
+
+  if not slotIndex then
+    -- Not in a valid snap slot, ignore
+    return
+  end
+
+  local guid = spiritObj.getGUID()
+  local notes = spiritObj.getGMNotes() or ""
+
+  local metadata = {}
+  if notes ~= "" then
+    local success, result = pcall(function() return JSON.decode(notes) end)
+    if success and result then
+      metadata = result
+    end
+  end
+
+  playerState.spirits[slotIndex] = {
+    guid = guid,
+    id = metadata.id,
+    name = spiritObj.getName(),
+    cost = metadata.cost,
+    classes = metadata.classes or {},
+    origins = metadata.origins or {}
+  }
+
+  PlayerMatLib.recalculateTotals(playerColor)
+end
+
+--- Remove a spirit from a player's tracked state
+---@param playerColor string The player color
+---@param spiritGUID string The GUID of the spirit being removed
+function PlayerMatLib.removeSpirit(playerColor, spiritGUID)
+  local playerState = state[playerColor]
+  if not playerState then return end
+
+  -- Find and remove the spirit by GUID
+  for slotIndex, spirit in pairs(playerState.spirits) do
+    if spirit.guid == spiritGUID then
+      playerState.spirits[slotIndex] = nil
+      break
+    end
+  end
+
+  PlayerMatLib.recalculateTotals(playerColor)
+end
+
+--- Recalculate totals for classes and origins from all tracked spirits
+---@param playerColor string The player color
+function PlayerMatLib.recalculateTotals(playerColor)
+  local playerState = state[playerColor]
+  if not playerState then return end
+
+  -- Reset totals
+  playerState.totals.classes = {}
+  playerState.totals.origins = {}
+
+  -- Sum all spirits
+  for _, spirit in pairs(playerState.spirits) do
+    for className, count in pairs(spirit.classes or {}) do
+      playerState.totals.classes[className] = (playerState.totals.classes[className] or 0) + count
+    end
+    for originName, count in pairs(spirit.origins or {}) do
+      playerState.totals.origins[originName] = (playerState.totals.origins[originName] or 0) + count
+    end
+  end
+
+  -- Notify UI of changes
+  PlayerMatLib.notifyUIUpdate(playerColor)
+end
+
+--- Notify the UI system to update for a player (internal helper)
+---@param playerColor string The player color
+function PlayerMatLib.notifyUIUpdate(playerColor)
+  -- Check if Global.UILib exists and is available
+  if Global and Global.call then
+    local success, err = pcall(function()
+      Global.call("updatePlayerUICallback", playerColor)
+    end)
+    if not success then
+      -- UILib might not be loaded yet, which is fine
+    end
+  end
+end
+
+--- Find which player's mat a position is on
+---@param worldPos Vector The world position to check
+---@return string|nil The player color whose mat contains this position, or nil
+function PlayerMatLib.findPlayerColorForPosition(worldPos)
+  local TOLERANCE = 5  -- Increased tolerance for physics variance
+  for playerColor, playerState in pairs(state) do
+    if playerState.matObject then
+      local matPos = playerState.matObject.getPosition()
+      local matBounds = playerState.matObject.getBounds()
+
+      -- Check if position is within mat bounds (with tolerance for physics)
+      local dx = math.abs(worldPos.x - matPos.x)
+      local dz = math.abs(worldPos.z - matPos.z)
+
+      if dx < matBounds.size.x/2 + TOLERANCE and dz < matBounds.size.z/2 + TOLERANCE then
+        return playerColor
+      end
+    end
+  end
+  return nil
+end
+
+
+-------------------------------------------------------------------------------
+-- Origin Destiny Activation (Phase 6)
+-------------------------------------------------------------------------------
+
+--- Check if player has ANY origin destiny on their mat
+---@param playerColor string The player color
+---@return table|nil { originName = string, object = tts__Object, arcaneSpirit = table } if any origin destiny present, nil otherwise
+function PlayerMatLib.getOriginDestinyOnMat(playerColor)
+  local playerState = state[playerColor]
+  if not playerState or not playerState.matObject then return nil end
+
+  -- Search for origin destiny tokens on the mat
+  local originDestinyTokens = SearchLib.onObject(playerState.matObject, "isOriginDestiny")
+  for _, token in ipairs(originDestinyTokens) do
+    local notes = token.getGMNotes() or ""
+    if notes ~= "" then
+      local success, metadata = pcall(function() return JSON.decode(notes) end)
+      if success and metadata and metadata.originName then
+        return {
+          originName = metadata.originName,
+          object = token,
+          arcaneSpirit = metadata.arcaneSpirit
+        }
+      end
+    end
+  end
+
+  return nil
+end
+
+--- Check if an origin destiny should be ACTIVATED for a player (grants special dice)
+--- Requires: 4+ unique hex spirits of same origin AND the origin destiny for that origin
+---@param playerColor string The player color
+---@return table|nil { originName = string, activated = true, completed = bool, uniqueCount = number } if activated,
+---                   { originName = string, activated = false, uniqueCount = number } if present but not activated,
+---                   nil if no origin destiny
+function PlayerMatLib.checkOriginDestinyActivation(playerColor)
+  local playerState = state[playerColor]
+  if not playerState then return nil end
+
+  -- First check if there's any origin destiny on the mat
+  local originDestiny = PlayerMatLib.getOriginDestinyOnMat(playerColor)
+  if not originDestiny then return nil end
+
+  -- Count unique spirit names per origin
+  local spiritsByOrigin = {}  -- originName -> { spiritName -> true }
+  for _, spirit in pairs(playerState.spirits) do
+    for originName, _ in pairs(spirit.origins or {}) do
+      if not spiritsByOrigin[originName] then
+        spiritsByOrigin[originName] = {}
+      end
+      spiritsByOrigin[originName][spirit.name] = true
+    end
+  end
+
+  -- Check if the origin destiny's origin has 4+ unique spirits
+  local originName = originDestiny.originName
+  local uniqueCount = 0
+  if spiritsByOrigin[originName] then
+    for _ in pairs(spiritsByOrigin[originName]) do
+      uniqueCount = uniqueCount + 1
+    end
+  end
+
+  if uniqueCount >= 6 then
+    -- COMPLETED - 6 unique spirits triggers Arcane Spirit transformation
+    return {
+      originName = originName,
+      activated = true,
+      completed = true,
+      uniqueCount = uniqueCount,
+      destinyObject = originDestiny.object,
+      arcaneSpirit = originDestiny.arcaneSpirit
+    }
+  elseif uniqueCount >= 4 then
+    return { originName = originName, activated = true, completed = false, uniqueCount = uniqueCount }
+  else
+    -- Origin destiny present but not enough spirits to activate
+    return { originName = originName, activated = false, completed = false, uniqueCount = uniqueCount }
+  end
+end
+
+--- Check if player has an origin destiny for a specific origin on their mat
+---@param playerColor string The player color
+---@param originName string The origin to check
+---@return boolean
+function PlayerMatLib.hasOriginDestinyForOrigin(playerColor, originName)
+  local playerState = state[playerColor]
+  if not playerState or not playerState.matObject then return false end
+
+  -- Search for origin destiny tokens on the mat
+  local originDestinyTokens = SearchLib.onObject(playerState.matObject, "isOriginDestiny")
+  for _, token in ipairs(originDestinyTokens) do
+    local notes = token.getGMNotes() or ""
+    if notes ~= "" then
+      local success, metadata = pcall(function() return JSON.decode(notes) end)
+      if success and metadata and metadata.originName == originName then
+        return true
+      end
+    end
+  end
+
+  return false
+end
+
+--- Get all spirit objects on the mat that match a specific origin
+---@param playerColor string The player color
+---@param originName string The origin to filter by
+---@return table List of spirit objects matching the origin
+function PlayerMatLib.getSpiritsOfOrigin(playerColor, originName)
+  local playerState = state[playerColor]
+  if not playerState then return {} end
+
+  local matchingSpirits = {}
+  for slotIndex, spirit in pairs(playerState.spirits) do
+    if spirit.origins and spirit.origins[originName] then
+      -- Get the actual object from the slot
+      local snapPos = SPIRIT_SNAP_POSITIONS[slotIndex]
+      if snapPos and playerState.matObject then
+        local worldPos = playerState.matObject.positionToWorld(snapPos)
+        local hits = SearchLib.atPosition(worldPos, "isHexSpirit")
+        if #hits > 0 then
+          table.insert(matchingSpirits, hits[1])
+        end
+      end
+    end
+  end
+
+  return matchingSpirits
+end
+
+return PlayerMatLib

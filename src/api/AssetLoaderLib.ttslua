@@ -1,0 +1,1172 @@
+-------------------------------------------------------------------------------
+-- AssetLoaderLib: Centralized asset loading and preloading
+-- Handles all bag creation, asset updates, and texture preloading
+-- Preloads ALL images (spirits, artifacts, monsters, runes, mats, icons, etc.)
+-------------------------------------------------------------------------------
+
+local AssetLoaderLib = {}
+
+local GameState = require("state/GameState")
+local SupabaseLib = require("api/SupabaseLib")
+local SpawnLib = require("util/SpawnLib")
+local TableLib = require("util/TableLib")
+local UtilLib = require("util/UtilLib")
+local ObjectTemplateLib = require("util/ObjectTemplateLib")
+
+-------------------------------------------------------------------------------
+-- Configuration
+-------------------------------------------------------------------------------
+
+-- Preload settings
+local PRELOAD_CONFIG = {
+  enabled = true,              -- Master switch for preloading
+  textureLoadFrames = 20,      -- Frames to wait for texture to load
+  preloadPosition = Vector(0, -50, 0),  -- Hidden position below table
+  useUIPreload = true          -- Use UI.setCustomAssets for image preloading
+}
+
+-- Bag row layout configuration (organized row at back edge)
+local BAG_ROW_CONFIG = {
+  startX = -45,   -- Leftmost bag X position (shifted right from -52)
+  y = 0.61,       -- Consistent height for all bags
+  z = 64,         -- Back edge of table
+  spacing = 7     -- Units between bag centers
+}
+
+-- Token bags row configuration (smaller infinite bags below main row)
+local TOKEN_BAG_ROW_CONFIG = {
+  startX = -45,   -- Same start X as main bags
+  y = 0.61,       -- Same height as main bags
+  z = 57,         -- Below main row (Z=64)
+  spacing = 4,    -- Smaller spacing for smaller bags
+  scale = 1       -- Smaller bag scale
+}
+
+--- Calculate bag position from slot number
+---@param slot number The slot index (1-based)
+---@return Vector The world position for the bag
+local function getBagPosition(slot)
+  return Vector(
+    BAG_ROW_CONFIG.startX + (slot - 1) * BAG_ROW_CONFIG.spacing,
+    BAG_ROW_CONFIG.y,
+    BAG_ROW_CONFIG.z
+  )
+end
+
+--- Calculate token bag position from slot number
+---@param slot number The slot index (1-based)
+---@return Vector The world position for the token bag
+local function getTokenBagPosition(slot)
+  return Vector(
+    TOKEN_BAG_ROW_CONFIG.startX + (slot - 1) * TOKEN_BAG_ROW_CONFIG.spacing,
+    TOKEN_BAG_ROW_CONFIG.y,
+    TOKEN_BAG_ROW_CONFIG.z
+  )
+end
+
+--- Filter spirit objects by cost range using GMNotes metadata
+---@param spirits table Array of spirit object templates
+---@param minCost number Minimum cost (inclusive)
+---@param maxCost number Maximum cost (inclusive)
+---@return table Filtered spirit list
+local function filterSpiritsByCost(spirits, minCost, maxCost)
+  local filtered = {}
+  for _, spirit in ipairs(spirits or {}) do
+    local metadata = UtilLib.getMetadata(spirit.GMNotes or "")
+    local cost = metadata.cost
+    if cost and cost >= minCost and cost <= maxCost then
+      table.insert(filtered, spirit)
+    end
+  end
+  return filtered
+end
+
+--- Build the Icon Guide bag contents from either a full PNG guide or a list of individual icons.
+---@param iconGuideUrl string|nil Icon guide PNG URL (preferred if present)
+---@param iconGuideIcons table|nil Icon guide icon entries (fallback)
+---@return table objectList
+local function buildIconGuideObjects(iconGuideUrl, iconGuideIcons)
+  local sizeMultiplier = 0.8 -- 20% smaller
+
+  if iconGuideUrl and iconGuideUrl ~= "" then
+    local card = ObjectTemplateLib.getTemplate("Card")
+    card.Nickname = "Icon Guide"
+    card.CustomDeck["1"].FaceURL = iconGuideUrl
+    card.CustomDeck["1"].BackURL = iconGuideUrl
+    card.Transform.scaleX = 3 * sizeMultiplier
+    card.Transform.scaleY = 1
+    card.Transform.scaleZ = 3 * sizeMultiplier
+    card.Tags = { "IconGuide" }
+    return { card }
+  end
+
+  if type(iconGuideIcons) ~= "table" or #iconGuideIcons == 0 then
+    return {}
+  end
+
+  -- Keep stable ordering for predictable bag contents.
+  local sorted = {}
+  for _, icon in ipairs(iconGuideIcons) do
+    table.insert(sorted, icon)
+  end
+  table.sort(sorted, function(a, b) return (a.position or 0) < (b.position or 0) end)
+
+  local objectList = {}
+  for _, icon in ipairs(sorted) do
+    local url = icon.image_url
+    if url and url ~= "" then
+      local card = ObjectTemplateLib.getTemplate("Card")
+      card.Nickname = icon.name or "Icon"
+      card.CustomDeck["1"].FaceURL = url
+      card.CustomDeck["1"].BackURL = url
+      card.Transform.scaleX = 1.5 * sizeMultiplier
+      card.Transform.scaleY = 1
+      card.Transform.scaleZ = 1.5 * sizeMultiplier
+      card.Tags = { "IconGuide" }
+      card.GMNotes = JSON.encode({
+        id = icon.id,
+        name = icon.name,
+        description = icon.description,
+        position = icon.position
+      })
+      table.insert(objectList, card)
+    end
+  end
+  return objectList
+end
+
+-- Bag configurations - centralized definition of all game bags
+-- Organized by category, left to right: Runes → Icons → Artifacts → Monsters → Spirits → Travelers
+local BAG_CONFIGS = {
+  -------------------------------------------------------------------------------
+  -- Category: Runes (Slot 1)
+  -------------------------------------------------------------------------------
+  {
+    name = "Runes",
+    dataKey = "runes",
+    generator = function(data)
+      return SupabaseLib.generateRuneData(data)
+    end,
+    slot = 1,
+    shuffle = false,
+    preload = true
+  },
+
+  -------------------------------------------------------------------------------
+  -- Category: Guardians (Slot 2)
+  -------------------------------------------------------------------------------
+  {
+    name = "Icons",
+    dataKey = "guardians",
+    generator = function(data)
+      return SupabaseLib.generateIconData(data)
+    end,
+    slot = 2,
+    shuffle = false,
+    preload = true
+  },
+
+  -------------------------------------------------------------------------------
+  -- Category: Artifacts (Slots 3-5)
+  -------------------------------------------------------------------------------
+  {
+    name = "Artifacts (Basic)",
+    dataKey = "artifacts",
+    generator = function(data)
+      local lists = SupabaseLib.generateArtifactsData(data)
+      return lists.basic
+    end,
+    slot = 3,
+    shuffle = true,
+    preload = true
+  },
+  {
+    name = "Artifacts (Guardian)",
+    dataKey = "artifacts",
+    generator = function(data)
+      local lists = SupabaseLib.generateArtifactsData(data)
+      return lists.guardian
+    end,
+    slot = 4,
+    shuffle = true,
+    preload = true
+  },
+  {
+    name = "Artifacts (Other)",
+    dataKey = "artifacts",
+    generator = function(data)
+      local lists = SupabaseLib.generateArtifactsData(data)
+      return lists.other
+    end,
+    slot = 5,
+    shuffle = true,
+    preload = true
+  },
+
+  -------------------------------------------------------------------------------
+  -- Category: Monsters (Slot 6)
+  -------------------------------------------------------------------------------
+  {
+    name = "Monsters",
+    dataKey = "monsters",
+    generator = function(data)
+      return SupabaseLib.generateMonsterData(data)
+    end,
+    slot = 6,
+    shuffle = false,  -- Monsters have specific order
+    preload = true
+  },
+
+  -------------------------------------------------------------------------------
+  -- Category: Spirits (Slots 7-11)
+  -------------------------------------------------------------------------------
+  {
+    name = "Spirit World Bag",
+    dataKey = "hexSpirits",
+    generator = function(data)
+      local regular, _, _ = SupabaseLib.generateSpiritData(data)
+      return filterSpiritsByCost(regular, 1, 5)
+    end,
+    slot = 7,
+    shuffle = true,
+    preload = true
+  },
+  {
+    name = "Abyss Fallen Spirits",
+    dataKey = "hexSpirits",
+    generator = function(data)
+      local regular, _, _ = SupabaseLib.generateSpiritData(data)
+      return filterSpiritsByCost(regular, 7, 9)
+    end,
+    slot = 8,
+    shuffle = true,
+    preload = true
+  },
+  {
+    name = "Arcane Spirits",
+    dataKey = "hexSpirits",
+    generator = function(data)
+      local _, arcane, _ = SupabaseLib.generateSpiritData(data)
+      return arcane
+    end,
+    slot = 9,
+    shuffle = true,
+    preload = true
+  },
+  {
+    name = "Hex Spirits (Special)",
+    dataKey = "hexSpirits",
+    generator = function(data)
+      local _, _, special = SupabaseLib.generateSpiritData(data)
+      return special
+    end,
+    slot = 10,
+    shuffle = true,
+    preload = true
+  },
+  {
+    name = "Origin Destiny",
+    generator = function()
+      return SupabaseLib.generateOriginDestinyData()
+    end,
+    slot = 11,
+    shuffle = true,
+    preload = true
+  },
+
+  -------------------------------------------------------------------------------
+  -- Category: Travelers (Slot 12)
+  -------------------------------------------------------------------------------
+  {
+    name = "Travelers",
+    dataKey = "travelers",
+    generator = function(data)
+      return SupabaseLib.generateTravelerData(data)
+    end,
+    slot = 12,
+    shuffle = false,
+    preload = true
+  },
+
+  -------------------------------------------------------------------------------
+  -- Category: Traveler Quests (Slot 13)
+  -------------------------------------------------------------------------------
+  {
+    name = "Traveler Quests",
+    dataKey = "travelerQuests",
+    generator = function(data)
+      return SupabaseLib.generateTravelerQuestData(data)
+    end,
+    slot = 13,
+    shuffle = false,
+    preload = true
+  },
+
+  -------------------------------------------------------------------------------
+  -- Category: Reference (Slot 14)
+  -------------------------------------------------------------------------------
+  {
+    name = "Icon Guide",
+    dataKey = "iconGuide",
+    generator = function(iconGuide)
+      if type(iconGuide) == "table" then
+        return buildIconGuideObjects(iconGuide.url, iconGuide.icons)
+      end
+      return buildIconGuideObjects(nil, nil)
+    end,
+    slot = 14,
+    shuffle = false,
+    preload = true
+  }
+}
+
+-- Legacy bag to clean up (migration)
+local LEGACY_BAGS = {
+  "Hex Spirits (Ancient)",  -- Replaced by Origin Destiny
+  "Spirit World Spirits",
+  "Hex Spirits",
+  "Sealed Spirits"
+}
+
+-------------------------------------------------------------------------------
+-- State tracking
+-------------------------------------------------------------------------------
+
+local preloadState = {
+  inProgress = false,   -- Whether preloading is active
+  totalPreloaded = 0    -- Count of preloaded objects
+}
+
+-------------------------------------------------------------------------------
+-- UI-Based Image Preloading (Most Comprehensive)
+-------------------------------------------------------------------------------
+
+--- Preload ONLY character select UI images via UI.setCustomAssets
+--- Keeps lobby responsive by loading the character select art first.
+---@param data table The full API data
+---@return number Count of images queued for preload
+function AssetLoaderLib.preloadCharacterSelectImages(data)
+  local imageAssets = {}
+  local imageIndex = 0
+
+  -- Helper to add unique image by asset name
+  local seenNames = {}
+  local function addImage(url, name)
+    if not url or url == "" then
+      return
+    end
+
+    local assetName = name or ("preload_" .. (imageIndex + 1))
+    if seenNames[assetName] then
+      return
+    end
+
+    seenNames[assetName] = true
+    imageIndex = imageIndex + 1
+    table.insert(imageAssets, {
+      name = assetName,
+      url = url
+    })
+  end
+
+  -- Guardian/Character select images (base + all 6 color variants)
+  if data and data.guardians then
+    for _, guardian in ipairs(data.guardians) do
+      local charName = guardian.name or tostring(guardian.id or imageIndex)
+      addImage(guardian.char_select_url, "charselect_" .. charName)
+      addImage(guardian.char_select_red_url, "charselect_Red_" .. charName)
+      addImage(guardian.char_select_orange_url, "charselect_Orange_" .. charName)
+      addImage(guardian.char_select_yellow_url, "charselect_Yellow_" .. charName)
+      addImage(guardian.char_select_green_url, "charselect_Green_" .. charName)
+      addImage(guardian.char_select_blue_url, "charselect_Blue_" .. charName)
+      addImage(guardian.char_select_purple_url, "charselect_Purple_" .. charName)
+    end
+  end
+
+  -- TTS Menu background (if used)
+  if data and data.ttsMenu and data.ttsMenu.backgroundUrl then
+    addImage(data.ttsMenu.backgroundUrl, "menu_background")
+  end
+
+  -- Apply to UI system - this triggers TTS to download all images
+  if #imageAssets > 0 then
+    UI.setCustomAssets(imageAssets)
+  end
+
+  return #imageAssets
+end
+
+--- Collect ALL image URLs from API data and preload via UI.setCustomAssets
+--- This forces TTS to download and cache all images upfront
+---@param data table The full API data
+---@return number Count of images queued for preload
+function AssetLoaderLib.preloadAllImages(data)
+  local imageAssets = {}
+  local imageIndex = 0
+
+  -- Helper to add unique image by asset name
+  local seenNames = {}
+  local function addImage(url, name)
+    if not url or url == "" then
+      return
+    end
+
+    local assetName = name or ("preload_" .. (imageIndex + 1))
+    if seenNames[assetName] then
+      return
+    end
+
+    seenNames[assetName] = true
+    imageIndex = imageIndex + 1
+    table.insert(imageAssets, {
+      name = assetName,
+      url = url
+    })
+  end
+
+  -- 1. Hex Spirits images
+  if data.hexSpirits then
+    for _, spirit in ipairs(data.hexSpirits) do
+      addImage(spirit.image_url, "spirit_" .. (spirit.id or imageIndex))
+    end
+  end
+
+  -- 2. Artifact images
+  if data.artifacts then
+    for _, artifact in ipairs(data.artifacts) do
+      addImage(artifact.image_path, "artifact_" .. (artifact.id or imageIndex))
+    end
+  end
+
+  -- 3. Monster images
+  if data.monsters then
+    for _, monster in ipairs(data.monsters) do
+      addImage(monster.image_url, "monster_" .. (monster.id or imageIndex))
+    end
+  end
+
+  -- 4. Traveler images
+  if data.travelers then
+    for _, traveler in ipairs(data.travelers) do
+      addImage(traveler.image_url, "traveler_" .. (traveler.id or imageIndex))
+    end
+  end
+
+  -- 4b. Traveler Quest images
+  if data.travelerQuests then
+    for _, quest in ipairs(data.travelerQuests) do
+      addImage(quest.image_url, "travelerquest_" .. (quest.id or imageIndex))
+    end
+  end
+
+  -- 5. Guardian/Character images (mats, chibis, icons, character select)
+  if data.guardians then
+    for _, guardian in ipairs(data.guardians) do
+      local charName = guardian.name or tostring(guardian.id or imageIndex)
+      addImage(guardian.mat_image_url, "mat_" .. (guardian.id or imageIndex))
+      addImage(guardian.chibi_image_url, "chibi_" .. (guardian.id or imageIndex))
+      addImage(guardian.icon_image_url, "icon_" .. (guardian.id or imageIndex))
+      -- Character select images
+      addImage(guardian.char_select_url, "charselect_" .. charName)
+      addImage(guardian.char_select_red_url, "charselect_Red_" .. charName)
+      addImage(guardian.char_select_orange_url, "charselect_Orange_" .. charName)
+      addImage(guardian.char_select_yellow_url, "charselect_Yellow_" .. charName)
+      addImage(guardian.char_select_green_url, "charselect_Green_" .. charName)
+      addImage(guardian.char_select_blue_url, "charselect_Blue_" .. charName)
+      addImage(guardian.char_select_purple_url, "charselect_Purple_" .. charName)
+    end
+  end
+
+  -- 5b. TTS Menu background
+  if data.ttsMenu and data.ttsMenu.backgroundUrl then
+    addImage(data.ttsMenu.backgroundUrl, "menu_background")
+  end
+
+  -- 5c. Icon guide image (UI overlay)
+  if data.iconGuideUrl then
+    addImage(data.iconGuideUrl, "icon_guide")
+  elseif data.iconGuideIcons then
+    for _, icon in ipairs(data.iconGuideIcons) do
+      addImage(icon.image_url, "icon_guide_" .. (icon.id or icon.name or imageIndex))
+    end
+  end
+
+  -- 6. Rune images
+  if data.runes then
+    for _, rune in ipairs(data.runes) do
+      addImage(rune.icon_url, "rune_" .. (rune.id or imageIndex))
+    end
+  end
+
+  -- 7. Origin/Destiny images (orbs and arcane spirits)
+  if data.origins then
+    for _, origin in ipairs(data.origins) do
+      addImage(origin.calling_orb_image_url, "orb_" .. (origin.id or imageIndex))
+      if origin.associated_hex_spirit then
+        addImage(origin.associated_hex_spirit.image_url, "arcane_" .. (origin.id or imageIndex))
+      end
+    end
+  end
+
+  -- 8. Icon pool assets (boards, status tokens, icons, etc.)
+  if data.iconPool then
+    for _, asset in ipairs(data.iconPool) do
+      addImage(asset.image_url, "icon_" .. (asset.name or imageIndex))
+    end
+  end
+
+  -- 9. Dice images (if any)
+  if data.customDice then
+    for _, dice in ipairs(data.customDice) do
+      if dice.image_url then
+        addImage(dice.image_url, "dice_" .. (dice.id or imageIndex))
+      end
+    end
+  end
+
+  -- 10. Class images (icons if any)
+  if data.classes then
+    for _, class in ipairs(data.classes) do
+      if class.icon_url then
+        addImage(class.icon_url, "class_" .. (class.id or imageIndex))
+      end
+    end
+  end
+
+  -- 11. Token images (Arcane Droplets, Avatar Barrier, etc.)
+  if data.tokens then
+    for _, token in ipairs(data.tokens) do
+      addImage(token.image_url, "token_" .. (token.id or imageIndex))
+    end
+  end
+
+  -- Apply to UI system - this triggers TTS to download all images
+  if #imageAssets > 0 then
+    UI.setCustomAssets(imageAssets)
+  end
+
+  return #imageAssets
+end
+
+--- Wait for UI assets to finish loading
+--- Used to delay UI creation until all UI.setCustomAssets downloads complete.
+---@param callback function Called when UI.loading becomes false (or on timeout)
+function AssetLoaderLib.waitForUIAssetsLoaded(callback)
+  local checkCount = 0
+  local maxChecks = 300  -- 30 seconds max wait (100ms intervals)
+
+  local function checkLoading()
+    checkCount = checkCount + 1
+
+    if not UI.loading then
+      if callback then callback() end
+    elseif checkCount >= maxChecks then
+      if callback then callback() end
+    else
+      Wait.time(checkLoading, 0.1)
+    end
+  end
+
+  -- Start checking
+  Wait.time(checkLoading, 0.1)
+end
+
+-------------------------------------------------------------------------------
+-- Player Mat Pre-spawning (Warmup Cache)
+-------------------------------------------------------------------------------
+
+--- Pre-spawn all player mats and figurines to warm up texture cache
+--- Spawns them hidden, waits for textures, then destroys them
+---@param guardians table The guardians data from API
+---@param onComplete function|nil Callback when done
+function AssetLoaderLib.prespawnPlayerMats(guardians, onComplete)
+  if not guardians or #guardians == 0 then
+    if onComplete then onComplete() end
+    return
+  end
+
+  local playableGuardians = {}
+  for _, g in ipairs(guardians) do
+    if g.mat_image_url then
+      table.insert(playableGuardians, g)
+    end
+  end
+
+  if #playableGuardians == 0 then
+    if onComplete then onComplete() end
+    return
+  end
+
+
+  local spawnedObjects = {}
+  local spawnedCount = 0
+  local totalToSpawn = #playableGuardians * 2  -- Mats + figurines
+
+  local function checkComplete()
+    if spawnedCount >= totalToSpawn then
+      -- Wait for textures to load, then destroy all
+      Wait.frames(function()
+        for _, obj in ipairs(spawnedObjects) do
+          if obj and not obj.isDestroyed() then
+            obj.destruct()
+          end
+        end
+        if onComplete then onComplete() end
+      end, PRELOAD_CONFIG.textureLoadFrames)
+    end
+  end
+
+  -- Spawn each mat and figurine hidden
+  for i, guardian in ipairs(playableGuardians) do
+    Wait.time(function()
+      -- Spawn mat
+      local matData = {
+        Name = "Custom_Tile",
+        Transform = {
+          posX = PRELOAD_CONFIG.preloadPosition.x + (i * 2),
+          posY = PRELOAD_CONFIG.preloadPosition.y,
+          posZ = PRELOAD_CONFIG.preloadPosition.z,
+          rotX = 0, rotY = 0, rotZ = 0,
+          scaleX = 9.5, scaleY = 1, scaleZ = 9.5
+        },
+        Nickname = "_preload_" .. guardian.name,
+        ColorDiffuse = { r = 0, g = 0, b = 0 },
+        CustomImage = {
+          ImageURL = guardian.mat_image_url,
+          ImageScalar = 1,
+          WidthScale = 0,
+          CustomTile = {
+            Type = 0,
+            Thickness = 0.1,
+            Stackable = false,
+            Stretch = true
+          }
+        }
+      }
+
+      local mat = spawnObjectData({ data = matData })
+      if mat then
+        mat.setInvisibleTo({})
+        table.insert(spawnedObjects, mat)
+      end
+      spawnedCount = spawnedCount + 1
+      checkComplete()
+
+      -- Spawn figurine if has chibi
+      if guardian.chibi_image_url and guardian.chibi_image_url ~= "" then
+        local figurineData = {
+          Name = "Figurine_Custom",
+          Transform = {
+            posX = PRELOAD_CONFIG.preloadPosition.x + (i * 2) + 1,
+            posY = PRELOAD_CONFIG.preloadPosition.y,
+            posZ = PRELOAD_CONFIG.preloadPosition.z,
+            rotX = 0, rotY = 180, rotZ = 0,
+            scaleX = 1, scaleY = 1, scaleZ = 1
+          },
+          Nickname = "_preload_figurine_" .. guardian.name,
+          ColorDiffuse = { r = 1, g = 1, b = 1 },
+          CustomImage = {
+            ImageURL = guardian.chibi_image_url,
+            ImageSecondaryURL = guardian.chibi_image_url,
+            ImageScalar = 2.25
+          }
+        }
+
+        local figurine = spawnObjectData({ data = figurineData })
+        if figurine then
+          figurine.setInvisibleTo({})
+          table.insert(spawnedObjects, figurine)
+        end
+      end
+      spawnedCount = spawnedCount + 1
+      checkComplete()
+
+    end, i * 0.05)  -- Small stagger to avoid overwhelming TTS
+  end
+end
+
+-------------------------------------------------------------------------------
+-- Main API
+-------------------------------------------------------------------------------
+
+--- Load all assets from API data
+--- This is the main entry point called from Global.ttslua
+---@param data table The loaded data from SupabaseLib
+---@param options table|nil Optional settings { preload = true/false, onComplete = function }
+function AssetLoaderLib.loadAllAssets(data, options)
+  options = options or {}
+  local shouldPreload = options.preload ~= false and PRELOAD_CONFIG.enabled
+
+  GameState.debugPrint("[AssetLoader] Loading assets...")
+
+  -- STEP 1: Preload ALL images via UI system (fastest method)
+  -- This tells TTS to download all images in parallel
+  if shouldPreload and PRELOAD_CONFIG.useUIPreload then
+    local imageCount = AssetLoaderLib.preloadAllImages(data)
+  end
+
+  -- STEP 2: Pre-spawn player mats to warm up texture cache
+  if shouldPreload and data.guardians then
+    AssetLoaderLib.prespawnPlayerMats(data.guardians)
+  end
+
+  -- Clean up legacy bags
+  for _, legacyName in ipairs(LEGACY_BAGS) do
+    SpawnLib.getSomeDataFromBag(legacyName)  -- Destroys if exists
+  end
+
+  -- Get spirit bag URL for custom bag
+  local spiritBagUrl = SupabaseLib.getSpiritBagUrl()
+
+  -- Track bags for preloading (spawn-and-hide method as backup)
+  local bagsToPreload = {}
+
+  -- Process each bag configuration
+  for _, config in ipairs(BAG_CONFIGS) do
+    -- CHECK IF BAG ALREADY EXISTS
+    local existingBag = UtilLib.getObjectByName(config.name)
+
+    if not existingBag then
+      -- Only spawn if bag doesn't exist
+      local bagData = config.dataKey and data[config.dataKey] or nil
+      local objectList = config.generator(bagData)
+
+      if objectList and #objectList > 0 then
+        -- Get existing bag position or use default
+        local position, rotation, guid = SpawnLib.getSomeDataFromBag(config.name)
+        position = position or getBagPosition(config.slot)
+
+        -- Shuffle if configured
+        if config.shuffle then
+          TableLib.shuffle(objectList)
+        end
+
+        -- Spawn the bag
+        if config.customBag and spiritBagUrl then
+          SpawnLib.spawnCustomSpiritBag(config.name, objectList, position, rotation, nil, guid, spiritBagUrl)
+        else
+          SpawnLib.spawnBag(config.name, objectList, position, rotation, nil, guid)
+        end
+
+        -- Queue for preloading if enabled
+        if shouldPreload and config.preload then
+          table.insert(bagsToPreload, config.name)
+        end
+      end
+    else
+      -- Bag already exists, queue for preloading if enabled
+      if shouldPreload and config.preload then
+        table.insert(bagsToPreload, config.name)
+      end
+    end
+  end
+
+  -- Ensure newer reference bags exist (for games that predate the bag configs).
+  AssetLoaderLib.ensureIconGuideBag(data and data.iconGuideUrl, data and data.iconGuideIcons)
+
+  -- Update boards and other non-bag assets
+  AssetLoaderLib.updateIconPoolAssets(data.iconPool)
+
+  -- Spawn token bags (Arcane Droplets, Avatar Barrier, etc.)
+  AssetLoaderLib.spawnTokenBags(data.tokens)
+
+  -- Set resource icon URLs from tokens (same source as token bags)
+  AssetLoaderLib.setResourceIcons(data.tokens)
+
+  -- Spawn Arcane Advisor on existing player mats
+  AssetLoaderLib.spawnArcaneAdvisorOnMats(data.hexSpirits)
+
+  -- Start preloading if enabled
+  if shouldPreload and #bagsToPreload > 0 then
+    AssetLoaderLib.startPreloading(bagsToPreload, options.onComplete)
+  elseif options.onComplete then
+    options.onComplete()
+  end
+end
+
+-------------------------------------------------------------------------------
+-- Reference Bags
+-------------------------------------------------------------------------------
+
+local ICON_GUIDE_BAG_NAME = "Icon Guide"
+
+--- Ensure the Icon Guide bag exists (spawns it if missing).
+--- This supports older saves that predate the Icon Guide bag.
+---@param iconGuideUrl string|nil Icon guide image URL from the export
+---@param iconGuideIcons table|nil Icon guide icon entries from the export
+function AssetLoaderLib.ensureIconGuideBag(iconGuideUrl, iconGuideIcons)
+  if UtilLib.getObjectByName(ICON_GUIDE_BAG_NAME) then
+    return
+  end
+
+  local objects = buildIconGuideObjects(iconGuideUrl, iconGuideIcons)
+  if objects and #objects > 0 then
+    SpawnLib.spawnBag(ICON_GUIDE_BAG_NAME, objects, getBagPosition(14))
+    return
+  end
+
+  objects = buildIconGuideObjects(GameState.iconGuideUrl, GameState.iconGuideIcons)
+  if objects and #objects > 0 then
+    SpawnLib.spawnBag(ICON_GUIDE_BAG_NAME, objects, getBagPosition(14))
+    return
+  end
+
+  -- Last resort: fetch from API (older saves may not have this cached).
+  SupabaseLib.fetchIconGuideData(function(url, icons)
+    if url and url ~= "" then
+      GameState.iconGuideUrl = url
+    end
+    if type(icons) == "table" and #icons > 0 then
+      GameState.iconGuideIcons = icons
+    end
+
+    local fetchedObjects = buildIconGuideObjects(url, icons)
+    if fetchedObjects and #fetchedObjects > 0 then
+      SpawnLib.spawnBag(ICON_GUIDE_BAG_NAME, fetchedObjects, getBagPosition(14))
+    end
+  end)
+end
+
+--- Update icon pool asset images (boards, status tokens, etc.)
+---@param iconPool table The icon_pool data from API
+function AssetLoaderLib.updateIconPoolAssets(iconPool)
+  if not iconPool then
+    return
+  end
+
+  for _, asset in ipairs(iconPool) do
+    local tags = asset.tags or {}
+
+    -- Spirit World map tile
+    if asset.name == "SpiritWorld" or TableLib.contains(tags, "spirit_world") then
+      SpawnLib.updateObjectImageByName("SpiritWorld", asset.image_url)
+    end
+
+    -- Board assets (reference_sheet, Origin_destiny)
+    if TableLib.contains(tags, "board") then
+      if asset.name == "reference_sheet" then
+        GameState.referenceSheetUrl = asset.image_url
+        for _, playerColor in ipairs(Player.getColors()) do
+          UI.setAttribute(playerColor .. "_reference_image", "image", asset.image_url)
+        end
+      elseif asset.name == "Origin_destiny" then
+        local destinyBag = UtilLib.getObjectByName("Origin Destiny")
+        if destinyBag then
+          local destinyData = destinyBag.getData()
+          if destinyData.ContainedObjects and destinyData.ContainedObjects[1] then
+            destinyData.ContainedObjects[1].CustomImage.ImageURL = asset.image_url
+            destinyBag.destruct()
+            spawnObjectData({ data = destinyData })
+          end
+        end
+      end
+    end
+
+    -- Status tokens
+    if TableLib.contains(tags, "status") then
+      local statusName = UtilLib.properCase(string.match(asset.name, ".*_(.*)"))
+      if statusName then
+        SpawnLib.updateObjectImageByTag(statusName, asset.image_url)
+      end
+    end
+  end
+end
+
+--- Spawn token bags in a row (each bag contains one token type)
+---@param tokensData table The tokens data from API
+function AssetLoaderLib.spawnTokenBags(tokensData)
+  if not tokensData or #tokensData == 0 then
+    return
+  end
+
+  local tokenBagsData = SupabaseLib.generateTokenBagsData()
+
+  for i, bagData in ipairs(tokenBagsData) do
+    local bagName = bagData.name
+    local existingBag = UtilLib.getObjectByName(bagName)
+
+    if not existingBag then
+      local position = getTokenBagPosition(i)
+
+      -- Create infinite bag with the token inside
+      local infiniteBagData = {
+        Name = "Infinite_Bag",
+        Nickname = bagName,
+        Transform = {
+          posX = position.x,
+          posY = position.y,
+          posZ = position.z,
+          rotX = 0,
+          rotY = 180,
+          rotZ = 0,
+          scaleX = TOKEN_BAG_ROW_CONFIG.scale,
+          scaleY = TOKEN_BAG_ROW_CONFIG.scale,
+          scaleZ = TOKEN_BAG_ROW_CONFIG.scale
+        },
+        Locked = true,
+        Tags = { "TokenBag" },
+        ColorDiffuse = { r = 0.2, g = 0.5, b = 0.8 },  -- Blue tint for token bags
+        ContainedObjects = { bagData.token }
+      }
+
+      spawnObjectData({ data = infiniteBagData })
+    end
+  end
+end
+
+--- Set resource icon URLs from tokens array (same source as token bags)
+--- Maps token names to GameState.resourceIcons
+---@param tokensData table The tokens array from API
+function AssetLoaderLib.setResourceIcons(tokensData)
+  if not tokensData then
+    return
+  end
+
+  for _, tokenData in ipairs(tokensData) do
+    if tokenData.image_url then
+      if tokenData.name == "Arcane Droplets" then
+        GameState.resourceIcons.blood = tokenData.image_url
+      elseif tokenData.name == "vp_raw" then
+        GameState.resourceIcons.victoryPoint = tokenData.image_url
+      elseif tokenData.name == "Avatar Barrier" or tokenData.name == "arcane_barrier" then
+        GameState.resourceIcons.barrier = tokenData.image_url
+      end
+    end
+  end
+end
+
+--- Spawn Arcane Advisor on existing player mats
+---@param hexSpiritsData table The hex spirits data
+function AssetLoaderLib.spawnArcaneAdvisorOnMats(hexSpiritsData)
+  if not hexSpiritsData then return end
+
+  -- Find Arcane Advisor in special spirits
+  local _, _, specialList = SupabaseLib.generateSpiritData(hexSpiritsData)
+  local advisorData = nil
+
+  for _, spiritData in ipairs(specialList) do
+    local md = UtilLib.getMetadata(spiritData.GMNotes)
+    if md.id == "871642d5-63b2-4c15-9bfe-621c21388a3b" then
+      advisorData = spiritData
+      break
+    end
+  end
+
+  if not advisorData then return end
+
+  for _, mat in ipairs(getObjectsWithTag("Playermat")) do
+    local matRot = mat.getRotation()
+    local globalPos = mat.positionToWorld(Vector(1.42, 0.1, 0.308))
+
+    -- Check if an Arcane Advisor already exists on this mat
+    local existingAdvisor = false
+    local objectsNearMat = Physics.cast({
+      origin = globalPos,
+      direction = {0, 1, 0},
+      type = 3,  -- Sphere cast
+      size = {2, 2, 2},  -- Search radius
+      max_distance = 0
+    })
+
+    for _, hit in ipairs(objectsNearMat) do
+      if hit.hit_object and hit.hit_object.hasTag("ArcaneAdvisor") then
+        existingAdvisor = true
+        break
+      end
+    end
+
+    -- Only spawn if advisor doesn't exist
+    if not existingAdvisor then
+      -- Clone the data to avoid modifying original
+      local spawnData = TableLib.copy(advisorData)
+      spawnData.Transform.posX = globalPos.x
+      spawnData.Transform.posY = 1.2
+      spawnData.Transform.posZ = globalPos.z
+      spawnData.Transform.rotX = matRot.x
+      spawnData.Transform.rotY = matRot.y
+      spawnData.Transform.rotZ = matRot.z
+
+      spawnObjectData({ data = spawnData })
+    end
+  end
+end
+
+-------------------------------------------------------------------------------
+-- Preloading System
+-------------------------------------------------------------------------------
+
+--- Start preloading textures for specified bags (all bags in parallel)
+---@param bagNames table Array of bag names to preload
+---@param onComplete function|nil Callback when all preloading is done
+function AssetLoaderLib.startPreloading(bagNames, onComplete)
+  preloadState.totalPreloaded = 0
+  preloadState.inProgress = true
+
+  broadcastToAll("Preloading assets for faster gameplay...", {0.5, 0.8, 1})
+
+  -- Find all valid bags
+  local validBags = {}
+  for _, bagName in ipairs(bagNames) do
+    local bag = UtilLib.getObjectByName(bagName)
+    if bag then
+      local bagType = bag.type
+      if bagType == "Bag" or bagType == "Custom_Model_Bag" or bagType == "Infinite_Bag" then
+        table.insert(validBags, { name = bagName, bag = bag })
+      end
+    end
+  end
+
+  if #validBags == 0 then
+    preloadState.inProgress = false
+    broadcastToAll("Asset preloading complete!", {0.5, 1, 0.5})
+    if onComplete then onComplete() end
+    return
+  end
+
+  -- Process all bags in parallel
+  local completedBags = 0
+  local totalBags = #validBags
+
+  for _, bagInfo in ipairs(validBags) do
+    AssetLoaderLib.preloadBagContents(bagInfo.bag, function()
+      completedBags = completedBags + 1
+      if completedBags >= totalBags then
+        preloadState.inProgress = false
+        if onComplete then onComplete() end
+      end
+    end)
+  end
+end
+
+--- Preload all objects in a bag by spawning them hidden, then returning them
+---@param bag object The bag object to preload
+---@param onComplete function Callback when this bag is done
+function AssetLoaderLib.preloadBagContents(bag, onComplete)
+  -- Safely get contents with pcall in case the object doesn't support getObjects
+  local success, contents = pcall(function() return bag.getObjects() end)
+  if not success or not contents or #contents == 0 then
+    onComplete()
+    return
+  end
+
+  local totalObjects = #contents
+  local processedCount = 0
+
+  -- Spawn all objects at once
+  for i = 1, totalObjects do
+    bag.takeObject({
+      position = PRELOAD_CONFIG.preloadPosition,
+      index = 0,  -- Always take from top
+      smooth = false,
+      callback_function = function(obj)
+        if obj and not obj.isDestroyed() then
+          obj.setInvisibleTo({})
+
+          -- Wait for texture to load, then put back
+          Wait.frames(function()
+            if obj and not obj.isDestroyed() and bag and not bag.isDestroyed() then
+              bag.putObject(obj)
+              preloadState.totalPreloaded = preloadState.totalPreloaded + 1
+            end
+
+            processedCount = processedCount + 1
+            if processedCount >= totalObjects then
+              onComplete()
+            end
+          end, PRELOAD_CONFIG.textureLoadFrames)
+        else
+          processedCount = processedCount + 1
+          if processedCount >= totalObjects then
+            onComplete()
+          end
+        end
+      end
+    })
+  end
+end
+
+-------------------------------------------------------------------------------
+-- Utility Functions
+-------------------------------------------------------------------------------
+
+--- Check if preloading is currently in progress
+---@return boolean
+function AssetLoaderLib.isPreloading()
+  return preloadState.inProgress
+end
+
+--- Get preload progress
+---@return number, number Current count and estimated total
+function AssetLoaderLib.getPreloadProgress()
+  return preloadState.totalPreloaded, 0  -- Total unknown until all bags processed
+end
+
+--- Cancel ongoing preloading
+function AssetLoaderLib.cancelPreloading()
+  preloadState.inProgress = false
+end
+
+--- Set preload configuration
+---@param config table Partial config to merge
+function AssetLoaderLib.setPreloadConfig(config)
+  for k, v in pairs(config) do
+    if PRELOAD_CONFIG[k] ~= nil then
+      PRELOAD_CONFIG[k] = v
+    end
+  end
+end
+
+--- Manually preload a specific bag by name
+---@param bagName string The name of the bag to preload
+---@param onComplete function|nil Callback when done
+function AssetLoaderLib.preloadBag(bagName, onComplete)
+  local bag = UtilLib.getObjectByName(bagName)
+  if not bag then
+    GameState.debugPrint("[AssetLoader] Bag not found: " .. bagName)
+    if onComplete then onComplete() end
+    return
+  end
+
+  AssetLoaderLib.preloadBagContents(bag, onComplete or function() end)
+end
+
+-------------------------------------------------------------------------------
+-- Bag Migration Helpers
+-------------------------------------------------------------------------------
+
+--- Ensure a named bag is a standard TTS Bag (not a Custom_Model_Bag), preserving contents.
+---@param bagName string
+function AssetLoaderLib.ensureStandardBag(bagName)
+  local bag = UtilLib.getObjectByName(bagName)
+  if not bag or bag.isDestroyed() then
+    return
+  end
+
+  if bag.type ~= "Custom_Model_Bag" then
+    return
+  end
+
+  local ok, data = pcall(function() return bag.getData() end)
+  if not ok or not data then
+    return
+  end
+
+  local containedObjects = data.ContainedObjects or {}
+  local position = bag.getPosition()
+  local rotation = bag.getRotation()
+  local guid = bag.getGUID()
+
+  GameState.debugPrint("[AssetLoader] Converting " .. bagName .. " from Custom_Model_Bag to Bag")
+  bag.destruct()
+
+  -- Respawn as a normal bag with the same contents (bag model/mesh issues can cause invisibility)
+  SpawnLib.spawnBag(bagName, containedObjects, position, rotation, nil, guid)
+end
+
+--- Ensure spirit bags use the same standard Bag object as other spawned bags.
+function AssetLoaderLib.ensureStandardSpiritBags()
+  AssetLoaderLib.ensureStandardBag("Spirit World Bag")
+  AssetLoaderLib.ensureStandardBag("Abyss Fallen Spirits")
+end
+
+return AssetLoaderLib

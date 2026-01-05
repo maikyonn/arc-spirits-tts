@@ -1,0 +1,293 @@
+-------------------------------------------------------------------------------
+-- DiceSpawnerUI: Dice spawner panel UI builder
+-- Generates XML for the dice spawner window with +/- controls per dice type
+-------------------------------------------------------------------------------
+
+local UITheme = require("ui/UITheme")
+local UIComponents = require("ui/UIComponents")
+local GameState = require("state/GameState")
+
+local DiceSpawnerUI = {}
+
+-- Defense Dice data (d12)
+local DEFENSE_DICE = {
+  id = "defense_dice",
+  name = "Defense Dice",
+  imageUrl = ""
+}
+
+-------------------------------------------------------------------------------
+-- Build dice cell component (for 2-column grid)
+-------------------------------------------------------------------------------
+
+--- Build a single dice cell with name, minus, count, plus buttons
+---@param playerColor string The player color
+---@param diceData table The dice data { id, name }
+---@param defaultCount number Default count to display
+---@return table XML table for the cell
+local function buildDiceCell(playerColor, diceData, defaultCount)
+  return {
+    tag = "Panel",
+    attributes = {
+      color = UITheme.colors.surface,
+      padding = "8 8 8 8",
+      preferredWidth = 220,
+      preferredHeight = 90
+    },
+    children = {
+      {
+        tag = "VerticalLayout",
+        attributes = {
+          spacing = 6,
+          childAlignment = "MiddleCenter"
+        },
+        children = {
+          -- Dice name
+          {
+            tag = "Text",
+            attributes = {
+              text = diceData.name or "Unknown",
+              fontSize = UITheme.sizes.fontSize.xl,
+              color = UITheme.colors.text,
+              alignment = "MiddleCenter",
+              preferredHeight = 28
+            }
+          },
+          -- Controls row: minus, count, plus
+          {
+            tag = "HorizontalLayout",
+            attributes = {
+              spacing = 8,
+              childAlignment = "MiddleCenter"
+            },
+            children = {
+              -- Minus button
+              {
+                tag = "Button",
+                attributes = {
+                  id = playerColor .. "_dice_minus_" .. diceData.id,
+                  onClick = "xml_diceMinus",
+                  color = UITheme.colors.danger,
+                  preferredWidth = 48,
+                  preferredHeight = 48
+                },
+                children = {
+                  {
+                    tag = "Text",
+                    attributes = {
+                      text = "-",
+                      fontSize = UITheme.sizes.fontSize.xxl,
+                      color = UITheme.colors.text
+                    }
+                  }
+                }
+              },
+              -- Count display
+              {
+                tag = "Text",
+                attributes = {
+                  id = playerColor .. "_dice_count_" .. diceData.id,
+                  text = tostring(defaultCount),
+                  fontSize = UITheme.sizes.fontSize.xxl,
+                  color = UITheme.colors.text,
+                  alignment = "MiddleCenter",
+                  preferredWidth = 50
+                }
+              },
+              -- Plus button
+              {
+                tag = "Button",
+                attributes = {
+                  id = playerColor .. "_dice_plus_" .. diceData.id,
+                  onClick = "xml_dicePlus",
+                  color = UITheme.colors.success,
+                  preferredWidth = 48,
+                  preferredHeight = 48
+                },
+                children = {
+                  {
+                    tag = "Text",
+                    attributes = {
+                      text = "+",
+                      fontSize = UITheme.sizes.fontSize.xxl,
+                      color = UITheme.colors.text
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+end
+
+-------------------------------------------------------------------------------
+-- Public API
+-------------------------------------------------------------------------------
+
+--- Build the dice spawner panel for a player (initially hidden)
+---@param playerColor string The player color
+---@return table XML table for the dice spawner panel
+function DiceSpawnerUI.build(playerColor)
+  local customDice = GameState.customDice or {}
+
+  -- Build combined dice list with Defense Dice first
+  local allDice = { DEFENSE_DICE }
+  for _, d in ipairs(customDice) do
+    table.insert(allDice, d)
+  end
+
+  -- Build dice cells and organize into 2-column rows
+  local gridRows = {}
+  local currentRow = {}
+
+  for i, diceData in ipairs(allDice) do
+    -- Check if this is defense dice - default to 1
+    local isDefense = diceData.name and string.lower(diceData.name):find("defense")
+    local defaultCount = isDefense and 1 or 0
+
+    table.insert(currentRow, buildDiceCell(playerColor, diceData, defaultCount))
+
+    -- After 2 items or at end, create a row
+    if #currentRow == 2 or i == #allDice then
+      table.insert(gridRows, {
+        tag = "HorizontalLayout",
+        attributes = {
+          spacing = 12,
+          childAlignment = "MiddleCenter"
+        },
+        children = currentRow
+      })
+      currentRow = {}
+    end
+  end
+
+  -- Dice grid (no scrolling)
+  local diceGrid = {
+    tag = "VerticalLayout",
+    attributes = {
+      spacing = 12,
+      padding = "8 8 8 8",
+      childAlignment = "MiddleCenter"
+    },
+    children = gridRows
+  }
+
+  -- Button row: Spawn and Cancel
+  local buttonRow = {
+    tag = "HorizontalLayout",
+    attributes = {
+      spacing = 20,
+      childAlignment = "MiddleCenter",
+      preferredHeight = 50
+    },
+    children = {
+      {
+        tag = "Button",
+        attributes = {
+          onClick = "xml_spawnSelectedDice",
+          color = UITheme.colors.success,
+          preferredWidth = 140,
+          preferredHeight = 50
+        },
+        children = {
+          {
+            tag = "Text",
+            attributes = {
+              text = "Spawn",
+              fontSize = UITheme.sizes.fontSize.xxl,
+              color = UITheme.colors.text
+            }
+          }
+        }
+      },
+      {
+        tag = "Button",
+        attributes = {
+          onClick = "xml_closeDiceSpawner",
+          color = UITheme.colors.danger,
+          preferredWidth = 140,
+          preferredHeight = 50
+        },
+        children = {
+          {
+            tag = "Text",
+            attributes = {
+              text = "Cancel",
+              fontSize = UITheme.sizes.fontSize.xxl,
+              color = UITheme.colors.text
+            }
+          }
+        }
+      }
+    }
+  }
+
+  -- Calculate height based on number of rows (each row is ~100px + spacing)
+  local numRows = math.ceil(#allDice / 2)
+  local gridHeight = numRows * 100 + (numRows - 1) * 12
+  local totalHeight = 60 + gridHeight + 70 + 40  -- header + grid + buttons + padding
+
+  -- Main panel (sized to fit content without scrolling)
+  return UIComponents.panel({
+    id = playerColor .. "_dicespawner_window",
+    width = 500,
+    height = totalHeight,
+    color = UITheme.colors.surface,
+    alignment = "MiddleCenter",
+    visibility = playerColor,
+    active = false,
+    outline = UITheme.colors.primary,
+    outlineSize = "2",
+    padding = UITheme.sizes.padding.lg,
+    children = {
+      {
+        tag = "VerticalLayout",
+        attributes = {
+          spacing = 12,
+          childAlignment = "MiddleCenter"
+        },
+        children = {
+          -- Header
+          {
+            tag = "Text",
+            attributes = {
+              text = "Spawn Dice",
+              fontSize = UITheme.sizes.fontSize.huge,
+              fontStyle = "Bold",
+              color = UITheme.colors.text,
+              alignment = "MiddleCenter",
+              preferredHeight = 45
+            }
+          },
+          -- Dice grid
+          diceGrid,
+          -- Buttons
+          buttonRow
+        }
+      }
+    }
+  })
+end
+
+--- Get the list of all dice IDs (for initialization)
+---@return table List of dice IDs
+function DiceSpawnerUI.getAllDiceIds()
+  local ids = { DEFENSE_DICE.id }
+  local customDice = GameState.customDice or {}
+  for _, d in ipairs(customDice) do
+    table.insert(ids, d.id)
+  end
+  return ids
+end
+
+--- Get the defense dice data
+---@return table Defense dice data
+function DiceSpawnerUI.getDefenseDice()
+  DEFENSE_DICE.imageUrl = GameState.d12ImageUrl or ""
+  return DEFENSE_DICE
+end
+
+return DiceSpawnerUI

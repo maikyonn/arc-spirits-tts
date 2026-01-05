@@ -1,0 +1,1169 @@
+{
+  "availableCharacters": [
+    "Prox",
+    "Pixia",
+    "Lumina",
+    "Bubblepop",
+    "Embers",
+    "Myrtle"
+  ],
+  "characterMatData": {
+    "Bubblepop": {
+      "chibiUrl": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/guardians/fd8557f7-1cdc-4dde-9941-42b171992432/guardian_cypher_chibi.png?quality=30",
+      "iconUrl": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/guardians/fd8557f7-1cdc-4dde-9941-42b171992432/guardian_cypher_icon.png?quality=30",
+      "imageUrl": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/guardians/fd8557f7-1cdc-4dde-9941-42b171992432/guardian_bubblepop_image_mat.png?quality=30",
+      "originName": "Cyber City"
+    },
+    "Embers": {
+      "chibiUrl": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/guardians/20112149-c8df-48b6-b508-5e9c39e87fc2/guardian_embers_chibi.png?quality=30",
+      "iconUrl": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/guardians/20112149-c8df-48b6-b508-5e9c39e87fc2/guardian_embers_icon.png?quality=30",
+      "imageUrl": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/guardians/20112149-c8df-48b6-b508-5e9c39e87fc2/guardian_embers_image_mat.png?quality=30",
+      "originName": "Lantern Lights"
+    },
+    "Lumina": {
+      "chibiUrl": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/guardians/20ec3d5d-3fd8-4b5b-b75b-127acb325fff/guardian_lumina_chibi.png?quality=30",
+      "iconUrl": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/guardians/20ec3d5d-3fd8-4b5b-b75b-127acb325fff/guardian_lumina_icon.png?quality=30",
+      "imageUrl": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/guardians/20ec3d5d-3fd8-4b5b-b75b-127acb325fff/guardian_lumina_image_mat.png?quality=30",
+      "originName": "Astral Zone"
+    },
+    "Myrtle": {
+      "chibiUrl": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/guardians/3267074b-4f61-457c-b406-12ccf43d068a/guardian_myrtle_chibi.png?quality=30",
+      "iconUrl": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/guardians/3267074b-4f61-457c-b406-12ccf43d068a/guardian_myrtle_icon.png?quality=30",
+      "imageUrl": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/guardians/3267074b-4f61-457c-b406-12ccf43d068a/guardian_myrtle_image_mat.png?quality=30",
+      "originName": "Floral Patch"
+    },
+    "Pixia": {
+      "chibiUrl": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/guardians/8ce23995-bb31-4be8-8fd6-fda19d1f430a/guardian_pixia_chibi.png?quality=30",
+      "iconUrl": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/guardians/8ce23995-bb31-4be8-8fd6-fda19d1f430a/guardian_pixia_icon.png?quality=30",
+      "imageUrl": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/guardians/8ce23995-bb31-4be8-8fd6-fda19d1f430a/guardian_pixia_image_mat.png?quality=30",
+      "originName": "Twilight Fairies"
+    },
+    "Prox": {
+      "chibiUrl": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/guardians/c17484dc-741b-4e9b-9ece-6581c2095fe1/guardian_prox_chibi.png?quality=30",
+      "iconUrl": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/guardians/c17484dc-741b-4e9b-9ece-6581c2095fe1/guardian_prox_icon.png?quality=30",
+      "imageUrl": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/guardians/c17484dc-741b-4e9b-9ece-6581c2095fe1/guardian_prox_image_mat.png?quality=30",
+      "originName": "Royal Family"
+    }
+  },
+  "classes": [
+    {
+      "color": "#88a1d3",
+      "description": "A strong way to defend against ALL attacks, but comes with variance.",
+      "effect_schema": [
+        {
+          "color": "bronze",
+          "count": 2,
+          "effects": [
+            {
+              "description": "Defend on rolls \u003c= 2 (25%)",
+              "type": "benefit"
+            }
+          ]
+        },
+        {
+          "color": "silver",
+          "count": 3,
+          "effects": [
+            {
+              "description": "Defend on rolls \u003c= 3 (42%)",
+              "type": "benefit"
+            }
+          ]
+        },
+        {
+          "color": "silver",
+          "count": 4,
+          "effects": [
+            {
+              "description": "Defend on rolls \u003c= 4 (50%)",
+              "type": "benefit"
+            }
+          ]
+        },
+        {
+          "color": "gold",
+          "count": 5,
+          "effects": [
+            {
+              "description": "Defend on rolls \u003c= 5 (58%)",
+              "type": "benefit"
+            }
+          ]
+        },
+        {
+          "color": "gold",
+          "count": 6,
+          "effects": [
+            {
+              "description": "Defend on rolls \u003c= 6 (66%)",
+              "type": "benefit"
+            }
+          ]
+        },
+        {
+          "color": "gold",
+          "count": 7,
+          "effects": [
+            {
+              "description": "Defend on rolls \u003c= 7 (75%)",
+              "type": "benefit"
+            }
+          ]
+        },
+        {
+          "color": "prismatic",
+          "count": 8,
+          "effects": [
+            {
+              "description": "Defend on rolls \u003c= 8 (83%)",
+              "type": "benefit"
+            }
+          ]
+        }
+      ],
+      "footer": "",
+      "icon_emoji": "🛡?",
+      "icon_url": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/class_icons/46cf02f0-a3cd-4211-bde4-cc3c5417bd6f/icon.png?quality=30",
+      "id": "46cf02f0-a3cd-4211-bde4-cc3c5417bd6f",
+      "name": "Defender",
+      "position": 1,
+      "tags": [
+        "Defensive"
+      ]
+    },
+    {
+      "color": "#6b7280",
+      "description": "A stable way to preserve barriers.",
+      "effect_schema": [
+        {
+          "count": 2,
+          "effects": [
+            {
+              "description": "Cap all incoming damage at 4.",
+              "type": "benefit"
+            }
+          ]
+        },
+        {
+          "count": 3,
+          "effects": [
+            {
+              "description": "Cap all incoming damage at 3.",
+              "type": "benefit"
+            }
+          ]
+        },
+        {
+          "count": 4,
+          "effects": [
+            {
+              "description": "Cap all incoming damage at 2.",
+              "type": "benefit"
+            }
+          ]
+        }
+      ],
+      "footer": "",
+      "icon_emoji": "�?",
+      "icon_url": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/class_icons/aa90084b-a07a-4b00-9448-9f5dae83bd03/icon.png?quality=30",
+      "id": "aa90084b-a07a-4b00-9448-9f5dae83bd03",
+      "name": "Support",
+      "position": 2,
+      "tags": [
+        "Defensive"
+      ]
+    },
+    {
+      "color": "#059669",
+      "description": "A standard offensive combat class.",
+      "effect_schema": [
+        {
+          "color": "bronze",
+          "count": 2,
+          "effects": [
+            {
+              "dice_id": "f5e0a3c4-0fe7-4d59-b834-94a39a53bbf9",
+              "quantity": 1,
+              "type": "dice"
+            }
+          ]
+        },
+        {
+          "color": "bronze",
+          "count": 3,
+          "effects": [
+            {
+              "dice_id": "f5e0a3c4-0fe7-4d59-b834-94a39a53bbf9",
+              "quantity": 2,
+              "type": "dice"
+            }
+          ]
+        },
+        {
+          "color": "bronze",
+          "count": 4,
+          "effects": [
+            {
+              "dice_id": "f027b9ec-62f6-48bf-947e-5a6fd07064dc",
+              "quantity": 1,
+              "type": "dice"
+            },
+            {
+              "dice_id": "f5e0a3c4-0fe7-4d59-b834-94a39a53bbf9",
+              "quantity": 1,
+              "type": "dice"
+            }
+          ]
+        },
+        {
+          "color": "silver",
+          "count": 5,
+          "effects": [
+            {
+              "dice_id": "f027b9ec-62f6-48bf-947e-5a6fd07064dc",
+              "quantity": 1,
+              "type": "dice"
+            },
+            {
+              "dice_id": "f5e0a3c4-0fe7-4d59-b834-94a39a53bbf9",
+              "quantity": 4,
+              "type": "dice"
+            }
+          ]
+        },
+        {
+          "color": "silver",
+          "count": 6,
+          "effects": [
+            {
+              "dice_id": "f027b9ec-62f6-48bf-947e-5a6fd07064dc",
+              "quantity": 2,
+              "type": "dice"
+            },
+            {
+              "dice_id": "f5e0a3c4-0fe7-4d59-b834-94a39a53bbf9",
+              "quantity": 5,
+              "type": "dice"
+            }
+          ]
+        },
+        {
+          "color": "gold",
+          "count": 7,
+          "effects": [
+            {
+              "dice_id": "f027b9ec-62f6-48bf-947e-5a6fd07064dc",
+              "quantity": 5,
+              "type": "dice"
+            }
+          ]
+        },
+        {
+          "color": "gold",
+          "count": 8,
+          "effects": [
+            {
+              "dice_id": "f027b9ec-62f6-48bf-947e-5a6fd07064dc",
+              "quantity": 5,
+              "type": "dice"
+            },
+            {
+              "dice_id": "f5e0a3c4-0fe7-4d59-b834-94a39a53bbf9",
+              "quantity": 4,
+              "type": "dice"
+            }
+          ]
+        },
+        {
+          "color": "prismatic",
+          "count": 9,
+          "effects": [
+            {
+              "dice_id": "f027b9ec-62f6-48bf-947e-5a6fd07064dc",
+              "quantity": 6,
+              "type": "dice"
+            },
+            {
+              "dice_id": "f5e0a3c4-0fe7-4d59-b834-94a39a53bbf9",
+              "quantity": 2,
+              "type": "dice"
+            }
+          ]
+        }
+      ],
+      "footer": "Expected Roll of Melee Attack Dice: ~1, Low Variance.",
+      "icon_emoji": "⚔?",
+      "icon_url": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/class_icons/dd17c072-159c-4b43-831f-1f51bb8b7720/icon.png?quality=30",
+      "id": "dd17c072-159c-4b43-831f-1f51bb8b7720",
+      "name": "Swordsman",
+      "position": 3,
+      "tags": [
+        "Combat"
+      ]
+    },
+    {
+      "color": "#7287b1",
+      "description": "A standard offensive combat class, with a bit higher variance.",
+      "effect_schema": [
+        {
+          "color": "bronze",
+          "count": 2,
+          "effects": [
+            {
+              "dice_id": "f5e0a3c4-0fe7-4d59-b834-94a39a53bbf9",
+              "quantity": 1,
+              "type": "dice"
+            }
+          ]
+        },
+        {
+          "color": "bronze",
+          "count": 3,
+          "effects": [
+            {
+              "dice_id": "f5e0a3c4-0fe7-4d59-b834-94a39a53bbf9",
+              "quantity": 2,
+              "type": "dice"
+            }
+          ]
+        },
+        {
+          "color": "bronze",
+          "count": 4,
+          "effects": [
+            {
+              "dice_id": "f027b9ec-62f6-48bf-947e-5a6fd07064dc",
+              "quantity": 1,
+              "type": "dice"
+            },
+            {
+              "dice_id": "f5e0a3c4-0fe7-4d59-b834-94a39a53bbf9",
+              "quantity": 1,
+              "type": "dice"
+            }
+          ]
+        },
+        {
+          "color": "silver",
+          "count": 5,
+          "effects": [
+            {
+              "dice_id": "f027b9ec-62f6-48bf-947e-5a6fd07064dc",
+              "quantity": 1,
+              "type": "dice"
+            },
+            {
+              "dice_id": "f5e0a3c4-0fe7-4d59-b834-94a39a53bbf9",
+              "quantity": 4,
+              "type": "dice"
+            }
+          ]
+        },
+        {
+          "color": "silver",
+          "count": 6,
+          "effects": [
+            {
+              "dice_id": "f027b9ec-62f6-48bf-947e-5a6fd07064dc",
+              "quantity": 2,
+              "type": "dice"
+            },
+            {
+              "dice_id": "f5e0a3c4-0fe7-4d59-b834-94a39a53bbf9",
+              "quantity": 5,
+              "type": "dice"
+            }
+          ]
+        },
+        {
+          "color": "gold",
+          "count": 7,
+          "effects": [
+            {
+              "dice_id": "f027b9ec-62f6-48bf-947e-5a6fd07064dc",
+              "quantity": 5,
+              "type": "dice"
+            }
+          ]
+        },
+        {
+          "color": "gold",
+          "count": 8,
+          "effects": [
+            {
+              "dice_id": "f027b9ec-62f6-48bf-947e-5a6fd07064dc",
+              "quantity": 5,
+              "type": "dice"
+            },
+            {
+              "dice_id": "f5e0a3c4-0fe7-4d59-b834-94a39a53bbf9",
+              "quantity": 4,
+              "type": "dice"
+            }
+          ]
+        },
+        {
+          "color": "prismatic",
+          "count": 9,
+          "effects": [
+            {
+              "dice_id": "f027b9ec-62f6-48bf-947e-5a6fd07064dc",
+              "quantity": 6,
+              "type": "dice"
+            },
+            {
+              "dice_id": "f5e0a3c4-0fe7-4d59-b834-94a39a53bbf9",
+              "quantity": 2,
+              "type": "dice"
+            }
+          ]
+        }
+      ],
+      "footer": "Expected Roll of Ranged Attack Dice: ~1.5, Medium Variance",
+      "icon_emoji": "🏹",
+      "icon_url": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/class_icons/5d1c9e89-e431-41dc-ae67-77dd8ee78170/icon.png?quality=30",
+      "id": "5d1c9e89-e431-41dc-ae67-77dd8ee78170",
+      "name": "Archer",
+      "position": 4,
+      "tags": [
+        "Combat"
+      ]
+    },
+    {
+      "color": "#6b7280",
+      "description": "A offensive combat class with high potential, depends on your Runes.",
+      "effect_schema": [
+        {
+          "color": "bronze",
+          "count": 2,
+          "effects": [
+            {
+              "dice_id": "f5e0a3c4-0fe7-4d59-b834-94a39a53bbf9",
+              "quantity": 1,
+              "type": "dice"
+            }
+          ]
+        },
+        {
+          "color": "bronze",
+          "count": 3,
+          "effects": [
+            {
+              "dice_id": "27f704cf-eb90-41bb-8d73-61e20ba4b43a",
+              "quantity": 1,
+              "type": "dice"
+            }
+          ]
+        },
+        {
+          "color": "silver",
+          "count": 4,
+          "effects": [
+            {
+              "dice_id": "27f704cf-eb90-41bb-8d73-61e20ba4b43a",
+              "quantity": 2,
+              "type": "dice"
+            }
+          ]
+        },
+        {
+          "color": "silver",
+          "count": 5,
+          "effects": [
+            {
+              "dice_id": "f027b9ec-62f6-48bf-947e-5a6fd07064dc",
+              "quantity": 1,
+              "type": "dice"
+            },
+            {
+              "dice_id": "27f704cf-eb90-41bb-8d73-61e20ba4b43a",
+              "quantity": 1,
+              "type": "dice"
+            }
+          ]
+        },
+        {
+          "color": "gold",
+          "count": 6,
+          "effects": [
+            {
+              "dice_id": "f027b9ec-62f6-48bf-947e-5a6fd07064dc",
+              "quantity": 2,
+              "type": "dice"
+            }
+          ]
+        },
+        {
+          "color": "prismatic",
+          "count": 7,
+          "effects": [
+            {
+              "dice_id": "889cd56b-a356-4f34-9914-8efa69618a55",
+              "quantity": 1,
+              "type": "dice"
+            },
+            {
+              "dice_id": "f5e0a3c4-0fe7-4d59-b834-94a39a53bbf9",
+              "quantity": 1,
+              "type": "dice"
+            }
+          ]
+        },
+        {
+          "color": "bronze",
+          "count": 8,
+          "effects": [
+            {
+              "dice_id": "889cd56b-a356-4f34-9914-8efa69618a55",
+              "quantity": 1,
+              "type": "dice"
+            },
+            {
+              "dice_id": "27f704cf-eb90-41bb-8d73-61e20ba4b43a",
+              "quantity": 1,
+              "type": "dice"
+            }
+          ]
+        }
+      ],
+      "footer": "Expected Roll of Magic Attack Dice: 4, High Variance.",
+      "icon_emoji": "🪄",
+      "icon_url": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/class_icons/173589ed-9bec-4965-94e6-dadbc6b5310a/icon.png?quality=30",
+      "id": "173589ed-9bec-4965-94e6-dadbc6b5310a",
+      "name": "Sorcerer",
+      "position": 5,
+      "tags": [
+        "Combat"
+      ]
+    },
+    {
+      "color": "#6b7280",
+      "description": "Unlock strategies you can select before battle.",
+      "effect_schema": [
+        {
+          "color": "bronze",
+          "count": 2,
+          "effects": [
+            {
+              "description": "Strategy: Imitate - Gain 1 trait of any class.",
+              "type": "benefit"
+            }
+          ]
+        },
+        {
+          "count": 2,
+          "effects": [
+            {
+              "description": "Abyss Strategy: Greed: Double incoming damage, gain double rewards.",
+              "type": "benefit"
+            }
+          ]
+        },
+        {
+          "color": "gold",
+          "count": 3,
+          "effects": [
+            {
+              "description": "Strategy: Imitate - Gain 2 traits of any class.",
+              "type": "benefit"
+            }
+          ]
+        },
+        {
+          "color": "gold",
+          "count": 3,
+          "effects": [
+            {
+              "description": "Abyss Strategy: Abyssal Tactics - All your dice may become Exalted Attack Dice.",
+              "type": "benefit"
+            }
+          ]
+        },
+        {
+          "color": "prismatic",
+          "count": 5,
+          "effects": [
+            {
+              "description": "(All Unique) Strategy: Combat Mastery: You may gain 4 breakpoints on any class with numerical breakpoints.",
+              "type": "benefit"
+            }
+          ]
+        }
+      ],
+      "footer": "",
+      "icon_emoji": "📖",
+      "icon_url": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/class_icons/17e08cde-f3d2-480b-8386-1e3047e2f85a/icon.png?quality=30",
+      "id": "17e08cde-f3d2-480b-8386-1e3047e2f85a",
+      "name": "Strategist",
+      "position": 6,
+      "tags": [
+        "Flexible"
+      ]
+    },
+    {
+      "color": "#6b7280",
+      "description": "An easy way to gain resources from the Abyss.",
+      "effect_schema": [
+        {
+          "count": 1,
+          "effects": [
+            {
+              "description": "Gain 1 abyss reward if you lose. Excludes Victory Points",
+              "type": "benefit"
+            }
+          ]
+        },
+        {
+          "count": 2,
+          "effects": [
+            {
+              "description": "Gain 2 abyss rewards if you lose. Excludes Victory Points",
+              "type": "benefit"
+            }
+          ]
+        },
+        {
+          "count": 3,
+          "effects": [
+            {
+              "description": "Gain 3 abyss rewards if you lose. Excludes Victory Points",
+              "type": "benefit"
+            }
+          ]
+        },
+        {
+          "count": 5,
+          "effects": [
+            {
+              "description": "Gain 2 protector traits. Gain the all abyss rewards if you lose. Excludes Victory Points",
+              "type": "benefit"
+            }
+          ]
+        }
+      ],
+      "footer": "",
+      "icon_emoji": "😼",
+      "icon_url": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/class_icons/f5438f3c-2052-4093-b402-893a45cf7046/icon.png?quality=30",
+      "id": "f5438f3c-2052-4093-b402-893a45cf7046",
+      "name": "Animal",
+      "position": 8,
+      "tags": [
+        "Resources"
+      ]
+    },
+    {
+      "color": "#6b7280",
+      "description": "You may place Hero Party Runes on top of Hero Party Spirits to level them up and increase their strength.\n\nHero Party Spirits start at level 0. Hero Party Runes increase a spirit's Hero Level by 1, with a max level of 3.",
+      "effect_schema": [
+        {
+          "count": "Ivyrn",
+          "effects": [
+            {
+              "description": "Gain 1 Exalted dice at level 3.",
+              "type": "benefit"
+            }
+          ]
+        },
+        {
+          "count": "Kael",
+          "effects": [
+            {
+              "description": "Gain 1 protector trait at Hero Level 3.",
+              "type": "benefit"
+            }
+          ]
+        },
+        {
+          "count": "Nyra",
+          "effects": [
+            {
+              "description": "Nyra becomes an Arcanist at level 3 and if all 6 hero party are also level 3.",
+              "type": "benefit"
+            }
+          ]
+        },
+        {
+          "count": "Mintyheart",
+          "effects": [
+            {
+              "description": "Level 2: Regenerate 1 Barrier after combat.",
+              "type": "benefit"
+            }
+          ]
+        },
+        {
+          "count": "Zarek",
+          "effects": [
+            {
+              "description": "Gain 1 Exalted dice at Hero Level 3.",
+              "type": "benefit"
+            }
+          ]
+        }
+      ],
+      "footer": "",
+      "icon_emoji": "🦸",
+      "icon_url": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/class_icons/aaf8adbe-d24f-4551-aacf-44c037695f63/icon.png?quality=30",
+      "id": "aaf8adbe-d24f-4551-aacf-44c037695f63",
+      "name": "Hero Party (Class)",
+      "position": 10,
+      "tags": [
+        "Special"
+      ]
+    },
+    {
+      "color": "#8b5cf6",
+      "description": "An extremely powerful class only ever described through myths. Only obtainable through Mythic Spirits.",
+      "effect_schema": [
+        {
+          "count": 1,
+          "effects": [
+            {
+              "description": "Gain 1 Arcane Attack per Arcane Droplet you have.",
+              "type": "benefit"
+            }
+          ]
+        }
+      ],
+      "footer": "",
+      "icon_emoji": "🩸",
+      "icon_url": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/class_icons/91322cba-4201-48a3-86b1-2d6d034fce3f/icon.png?quality=30",
+      "id": "91322cba-4201-48a3-86b1-2d6d034fce3f",
+      "name": "Arcanist",
+      "position": 11,
+      "tags": [
+        "Special"
+      ]
+    },
+    {
+      "color": "#8b5cf6",
+      "description": "",
+      "effect_schema": [
+        {
+          "count": 1,
+          "effects": [
+            {
+              "description": "If you loose ANY barrier in combat, loose 1 of your humans.",
+              "type": "benefit"
+            }
+          ]
+        }
+      ],
+      "footer": "",
+      "icon_emoji": "🕵?",
+      "icon_url": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/class_icons/ca7348fc-9f45-4b20-9c7d-65d404c1bd51/icon.png?quality=30",
+      "id": "ca7348fc-9f45-4b20-9c7d-65d404c1bd51",
+      "name": "Human Enclave",
+      "position": 12,
+      "tags": []
+    }
+  ],
+  "customDice": [
+    {
+      "color": "#ffbf52",
+      "description": "",
+      "diceType": "attack",
+      "faces": [
+        {
+          "reward_type": "attack",
+          "reward_value": "1",
+          "side_number": 1
+        },
+        {
+          "reward_type": "attack",
+          "reward_value": "1",
+          "side_number": 2
+        },
+        {
+          "reward_type": "attack",
+          "reward_value": "1",
+          "side_number": 3
+        },
+        {
+          "reward_type": "attack",
+          "reward_value": "1",
+          "side_number": 4
+        },
+        {
+          "reward_type": "attack",
+          "reward_value": "2",
+          "side_number": 5
+        },
+        {
+          "reward_type": "attack",
+          "reward_value": "2",
+          "side_number": 6
+        }
+      ],
+      "icon": "🎲",
+      "id": "f027b9ec-62f6-48bf-947e-5a6fd07064dc",
+      "imageUrl": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/dice_templates/f027b9ec-62f6-48bf-947e-5a6fd07064dc/prefab_composite.png?quality=30",
+      "name": "Exalted Attack"
+    },
+    {
+      "color": "#4a9eff",
+      "description": "",
+      "diceType": "special",
+      "faces": [
+        {
+          "reward_description": "Side 1",
+          "reward_type": "special",
+          "reward_value": "0",
+          "side_number": 1
+        },
+        {
+          "reward_description": "Side 2",
+          "reward_type": "special",
+          "reward_value": "0",
+          "side_number": 2
+        },
+        {
+          "reward_description": "Side 3",
+          "reward_type": "special",
+          "reward_value": "1",
+          "side_number": 3
+        },
+        {
+          "reward_description": "Side 4",
+          "reward_type": "special",
+          "reward_value": "1",
+          "side_number": 4
+        },
+        {
+          "reward_description": "Side 5",
+          "reward_type": "special",
+          "reward_value": "1⧉",
+          "side_number": 5
+        },
+        {
+          "reward_description": "Side 6",
+          "reward_type": "special",
+          "reward_value": "1⧉",
+          "side_number": 6
+        }
+      ],
+      "icon": "⚔?",
+      "id": "4b4b8453-13eb-40e0-bd69-b5e8b7bea4d4",
+      "imageUrl": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/dice_templates/4b4b8453-13eb-40e0-bd69-b5e8b7bea4d4/prefab_composite.png?quality=30",
+      "name": "Cyber Dice"
+    },
+    {
+      "color": "#ff4d4d",
+      "description": "",
+      "diceType": "attack",
+      "faces": [
+        {
+          "reward_type": "attack",
+          "reward_value": "2",
+          "side_number": 1
+        },
+        {
+          "reward_type": "attack",
+          "reward_value": "2",
+          "side_number": 2
+        },
+        {
+          "reward_type": "attack",
+          "reward_value": "2",
+          "side_number": 3
+        },
+        {
+          "reward_type": "attack",
+          "reward_value": "3",
+          "side_number": 4
+        },
+        {
+          "reward_type": "attack",
+          "reward_value": "3",
+          "side_number": 5
+        },
+        {
+          "reward_type": "attack",
+          "reward_value": "3",
+          "side_number": 6
+        }
+      ],
+      "icon": "🎲",
+      "id": "889cd56b-a356-4f34-9914-8efa69618a55",
+      "imageUrl": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/dice_templates/exported_template_arcane_attack.png?quality=30",
+      "name": "Arcane Attack"
+    },
+    {
+      "color": "#4a9eff",
+      "description": "Ranged attack with moderate variance. EV 3.3 SD 3.2",
+      "diceType": "attack",
+      "faces": [
+        {
+          "reward_description": "0 Attack",
+          "reward_type": "attack",
+          "reward_value": "0",
+          "side_number": 1
+        },
+        {
+          "reward_description": "0 Attack",
+          "reward_type": "attack",
+          "reward_value": "0",
+          "side_number": 2
+        },
+        {
+          "reward_description": "1 Attack",
+          "reward_type": "attack",
+          "reward_value": "1",
+          "side_number": 3
+        },
+        {
+          "reward_description": "1 Attack",
+          "reward_type": "attack",
+          "reward_value": "1",
+          "side_number": 4
+        },
+        {
+          "reward_description": "2 Attack",
+          "reward_type": "attack",
+          "reward_value": "1",
+          "side_number": 5
+        },
+        {
+          "reward_description": "4 Attack",
+          "reward_type": "attack",
+          "reward_value": "2",
+          "side_number": 6
+        }
+      ],
+      "icon": "🎲",
+      "id": "27f704cf-eb90-41bb-8d73-61e20ba4b43a",
+      "imageUrl": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/dice_templates/27f704cf-eb90-41bb-8d73-61e20ba4b43a/prefab_composite.png?quality=30",
+      "name": "Critical Attack"
+    },
+    {
+      "color": "#4a9eff",
+      "description": "Consistent heavy melee damage with low variance",
+      "diceType": "attack",
+      "faces": [
+        {
+          "reward_description": "0 Attack",
+          "reward_type": "attack",
+          "reward_value": "0",
+          "side_number": 1
+        },
+        {
+          "reward_description": "1 Attack",
+          "reward_type": "attack",
+          "reward_value": "0",
+          "side_number": 2
+        },
+        {
+          "reward_description": "1 Attack",
+          "reward_type": "attack",
+          "reward_value": "0",
+          "side_number": 3
+        },
+        {
+          "reward_description": "1 Attack",
+          "reward_type": "attack",
+          "reward_value": "1",
+          "side_number": 4
+        },
+        {
+          "reward_description": "2 Attack",
+          "reward_type": "attack",
+          "reward_value": "1",
+          "side_number": 5
+        },
+        {
+          "reward_description": "2 Attack",
+          "reward_type": "attack",
+          "reward_value": "1",
+          "side_number": 6
+        }
+      ],
+      "icon": "🎲",
+      "id": "f5e0a3c4-0fe7-4d59-b834-94a39a53bbf9",
+      "imageUrl": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/dice_templates/f5e0a3c4-0fe7-4d59-b834-94a39a53bbf9/prefab_composite.png?quality=30",
+      "name": "Basic Attack"
+    }
+  ],
+  "fresh": false,
+  "gameStarted": false,
+  "originDestinyActive": [],
+  "referenceSheetUrl": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/misc_assets/e1f25e0a-96e9-4ee4-9e5e-c8373f81d9c4/Screenshot_2025-12-06_at_9.03.31_PM.png?quality=30",
+  "runes": [
+    {
+      "class_id": "91322cba-4201-48a3-86b1-2d6d034fce3f",
+      "class_name": "Arcanist",
+      "icon_url": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/runes/87263a0b-1e46-496a-a42d-f4bd928b7752/icon.png?quality=30",
+      "id": "87263a0b-1e46-496a-a42d-f4bd928b7752",
+      "name": "Arcanist",
+      "type": "class"
+    },
+    {
+      "class_id": "aaf8adbe-d24f-4551-aacf-44c037695f63",
+      "class_name": "Hero Party (Class)",
+      "icon_url": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/runes/84207e75-e1da-497c-90ae-2fdffecf4607/icon.png?quality=30",
+      "id": "84207e75-e1da-497c-90ae-2fdffecf4607",
+      "name": "Hero Party (Class)",
+      "type": "class"
+    },
+    {
+      "icon_url": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/runes/b9607847-d00b-4578-906b-7cb0b9b9c9a4/icon.png?quality=30",
+      "id": "b9607847-d00b-4578-906b-7cb0b9b9c9a4",
+      "name": "Modern Human",
+      "origin_id": "48e4acb4-ee9e-42ea-ba82-70165770c368",
+      "origin_name": "Human Enclave",
+      "type": "origin"
+    },
+    {
+      "icon_url": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/runes/a36f2af9-3c8c-4265-939c-62bd2e12e878/icon.png?quality=30",
+      "id": "a36f2af9-3c8c-4265-939c-62bd2e12e878",
+      "name": "Royal Family",
+      "origin_id": "59d3e23e-c7fd-48f9-911d-b8a306029404",
+      "origin_name": "Royal Family",
+      "type": "origin"
+    },
+    {
+      "icon_url": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/runes/b0fce6aa-282e-48ed-bc14-39ce250b3dd0/icon.png?quality=30",
+      "id": "b0fce6aa-282e-48ed-bc14-39ce250b3dd0",
+      "name": "Fairy Garden",
+      "origin_id": "b4a04571-548d-4572-a6a8-0b85c39316d3",
+      "origin_name": "Twilight Fairies",
+      "type": "origin"
+    },
+    {
+      "icon_url": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/runes/356f3ad2-4cac-4b69-a3cc-7559f8891d8e/icon.png?quality=30",
+      "id": "356f3ad2-4cac-4b69-a3cc-7559f8891d8e",
+      "name": "Cyber City",
+      "origin_id": "fa7db249-d99d-4c1d-a37d-9027c9f5a31e",
+      "origin_name": "Cyber City",
+      "type": "origin"
+    },
+    {
+      "icon_url": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/runes/929fe4e3-ab41-4f7c-8bfd-44635752538c/icon.png?quality=30",
+      "id": "929fe4e3-ab41-4f7c-8bfd-44635752538c",
+      "name": "Astral Zone",
+      "origin_id": "9d4457d3-2a6c-4430-8c1b-1bf1bc20889a",
+      "origin_name": "Astral Zone",
+      "type": "origin"
+    },
+    {
+      "icon_url": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/runes/34b2a963-f8c6-4fc0-8272-ddc50b0036a8/icon.png?quality=30",
+      "id": "34b2a963-f8c6-4fc0-8272-ddc50b0036a8",
+      "name": "Florest",
+      "origin_id": "ad555f03-9b89-4a71-a47c-464fd67d2c05",
+      "origin_name": "Floral Patch",
+      "type": "origin"
+    },
+    {
+      "icon_url": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/runes/b395bf12-3e7d-49b7-a5cb-293b25002919/icon.png?quality=30",
+      "id": "b395bf12-3e7d-49b7-a5cb-293b25002919",
+      "name": "Void",
+      "origin_id": "27531555-353f-49be-b05e-e78f35e0a7b3",
+      "origin_name": "Void",
+      "type": "origin"
+    },
+    {
+      "icon_url": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/runes/7ca279f0-1ca8-484a-a86e-0a87aaa7b312/icon.png?quality=30",
+      "id": "7ca279f0-1ca8-484a-a86e-0a87aaa7b312",
+      "name": "Any Rune",
+      "origin_id": "d459ae53-da95-4323-b348-6720e52643d4",
+      "origin_name": "Lost",
+      "type": "origin"
+    },
+    {
+      "icon_url": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/runes/480cd5f7-adea-481d-8ea9-aad776599d7b/icon.png?quality=30",
+      "id": "480cd5f7-adea-481d-8ea9-aad776599d7b",
+      "name": "Lantern Lights",
+      "origin_id": "178449e9-cc6b-45ab-8522-5183fe1d9307",
+      "origin_name": "Lantern Lights",
+      "type": "origin"
+    },
+    {
+      "icon_url": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/runes/5eba8681-16b8-4563-b017-22c80a84b35b/icon.png?quality=30",
+      "id": "5eba8681-16b8-4563-b017-22c80a84b35b",
+      "name": "Tidal Tribe",
+      "origin_id": "294cee31-a7ac-4292-9b61-d4293c05c146",
+      "origin_name": "Tidal Tribe",
+      "type": "origin"
+    },
+    {
+      "icon_url": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/runes/e9e912c2-98bd-4869-b8b2-5089bc037ac7/icon.png?quality=30",
+      "id": "e9e912c2-98bd-4869-b8b2-5089bc037ac7",
+      "name": "Arctic Nest",
+      "origin_id": "82816408-d2e1-4e2c-9954-d9aea0bad324",
+      "origin_name": "Arctic Nest",
+      "type": "origin"
+    },
+    {
+      "icon_url": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/runes/f452c328-1650-40ac-8506-4f0e9d7a964e/icon.png?quality=30",
+      "id": "f452c328-1650-40ac-8506-4f0e9d7a964e",
+      "name": "Hero Party Leveling",
+      "origin_id": "d40b9771-29b0-4391-a9aa-41945682cd3a",
+      "origin_name": "Hero Party",
+      "type": "origin"
+    },
+    {
+      "class_id": "173589ed-9bec-4965-94e6-dadbc6b5310a",
+      "class_name": "Sorcerer",
+      "icon_url": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/runes/d0b484ed-733c-4d55-b549-30e631eec857/icon.png?quality=30",
+      "id": "d0b484ed-733c-4d55-b549-30e631eec857",
+      "name": "Sorcerer",
+      "type": "class"
+    },
+    {
+      "class_id": "dd17c072-159c-4b43-831f-1f51bb8b7720",
+      "class_name": "Swordsman",
+      "icon_url": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/runes/efa4b29a-06f0-43af-bd11-d60c180e793e/icon.png?quality=30",
+      "id": "efa4b29a-06f0-43af-bd11-d60c180e793e",
+      "name": "Swordsman",
+      "type": "class"
+    },
+    {
+      "class_id": "aa90084b-a07a-4b00-9448-9f5dae83bd03",
+      "class_name": "Support",
+      "icon_url": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/runes/a844c161-3f67-42d7-ba59-d5efd5df5f98/icon.png?quality=30",
+      "id": "a844c161-3f67-42d7-ba59-d5efd5df5f98",
+      "name": "Support",
+      "type": "class"
+    },
+    {
+      "class_id": "46cf02f0-a3cd-4211-bde4-cc3c5417bd6f",
+      "class_name": "Defender",
+      "icon_url": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/runes/c79313bf-7598-4e6e-93c6-745c8d777b60/icon.png?quality=30",
+      "id": "c79313bf-7598-4e6e-93c6-745c8d777b60",
+      "name": "Defender",
+      "type": "class"
+    },
+    {
+      "class_id": "f5438f3c-2052-4093-b402-893a45cf7046",
+      "class_name": "Animal",
+      "icon_url": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/runes/f1c4f059-61e0-40ad-ad9a-4e25a8531f49/icon.png?quality=30",
+      "id": "f1c4f059-61e0-40ad-ad9a-4e25a8531f49",
+      "name": "Animal",
+      "type": "class"
+    },
+    {
+      "class_id": "17e08cde-f3d2-480b-8386-1e3047e2f85a",
+      "class_name": "Strategist",
+      "icon_url": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/runes/33f343e7-6bdb-43cc-8b27-115eaa16826f/icon.png?quality=30",
+      "id": "33f343e7-6bdb-43cc-8b27-115eaa16826f",
+      "name": "Strategist",
+      "type": "class"
+    },
+    {
+      "class_id": "5d1c9e89-e431-41dc-ae67-77dd8ee78170",
+      "class_name": "Archer",
+      "icon_url": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/runes/f7139fa6-629e-4daa-a360-33b7f90af513/icon.png?quality=30",
+      "id": "f7139fa6-629e-4daa-a360-33b7f90af513",
+      "name": "Archer",
+      "type": "class"
+    },
+    {
+      "class_id": "ca7348fc-9f45-4b20-9c7d-65d404c1bd51",
+      "class_name": "Human Enclave",
+      "icon_url": "https://gvxfokbptelmvvlxbigh.supabase.co/storage/v1/render/image/public/game_assets/runes/00d980ec-5640-4b62-82d4-14cc390321ae/icon.png?quality=30",
+      "id": "00d980ec-5640-4b62-82d4-14cc390321ae",
+      "name": "Human Enclave",
+      "type": "class"
+    }
+  ],
+  "selectedCharacters": []
+}

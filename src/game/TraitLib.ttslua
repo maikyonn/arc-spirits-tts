@@ -1,0 +1,77 @@
+-------------------------------------------------------------------------------
+-- TraitLib: Trait counting and management
+-- Handles counting traits (Archer, Sorcerer, Swordsman, Defender) from
+-- HexSpirits on player mats and updating UI accordingly
+-- NOTE: Automatic updates removed - use manual refresh button in UI
+-------------------------------------------------------------------------------
+
+local GameState = require("state/GameState")
+local SearchLib = require("util/SearchLib")
+local PlayerMatLib = require("game/PlayerMatLib")
+local UtilLib = require("util/UtilLib")
+
+local TraitLib = {}
+
+-------------------------------------------------------------------------------
+-- Public API
+-------------------------------------------------------------------------------
+
+--- Updates traits for a single player
+--- Stores trait counts and updates UI (no dice spawning)
+---@param playerColor string The player color
+function TraitLib.updateTraitsForPlayer(playerColor)
+  local handData = Player[playerColor].getHandTransform()
+  if not handData then return end
+
+  -- Get effective traits (base from spirits only, no modifiers)
+  local effectiveTraits = PlayerMatLib.getEffectiveTraits(playerColor)
+
+  -- Store counts for UI display
+  GameState.traitSettingsPerPlayer[playerColor] = {}
+  for className, count in pairs(effectiveTraits) do
+    GameState.traitSettingsPerPlayer[playerColor][className] = count
+  end
+
+  -- Update UI only (no dice spawning)
+  if Global and Global.call then
+    pcall(function()
+      Global.call("updatePlayerUICallback", playerColor)
+    end)
+  end
+end
+
+--- Counts traits for a specific player by searching their playermat
+---@param playerColor string The color of the player
+---@return table A table of trait counts (e.g., { Archer = 2, Sorcerer = 1 })
+function TraitLib.countTraitsForPlayer(playerColor)
+  -- Try using PlayerMatLib tracked state first (faster and more reliable)
+  local totals = PlayerMatLib.getTotals(playerColor)
+  if totals and totals.classes then
+    local hasClasses = false
+    for _ in pairs(totals.classes) do
+      hasClasses = true
+      break
+    end
+    if hasClasses then
+      return totals.classes
+    end
+  end
+
+  -- Fallback to physics-based counting if PlayerMatLib doesn't have data
+  local playermat = UtilLib.getPlayermat(playerColor)
+  if not playermat then return {} end
+
+  local searchResult = SearchLib.onObject(playermat, "isHexSpirit")
+
+  local classes = {}
+  for _, obj in ipairs(searchResult) do
+    local md = UtilLib.getMetadata(obj.getGMNotes())
+    for class, count in pairs(md.classes or {}) do
+      classes[class] = (classes[class] or 0) + count
+    end
+  end
+
+  return classes
+end
+
+return TraitLib

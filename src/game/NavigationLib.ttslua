@@ -1,0 +1,157 @@
+-- NavigationLib: Realm Navigation Logic
+-- Handles player realm navigation selections and UI updates
+
+local GameState = require("state/GameState")
+local GameSyncLib = require("api/GameSyncLib")
+local UtilLib = require("util/UtilLib")
+local UITheme = require("ui/UITheme")
+
+local NavigationLib = {}
+
+-- Constants for UI layout
+local PLAYER_ROW_HEIGHT = 28
+local BASE_PANEL_HEIGHT = 70  -- Button + header
+
+local function isValidPlayerColor(playerColor)
+  for _, validColor in ipairs(UITheme.validPlayerColors) do
+    if playerColor == validColor then
+      return true
+    end
+  end
+  return false
+end
+
+-------------------------------------------------------------------------------
+-- Navigation Functions
+-------------------------------------------------------------------------------
+
+-- Opens navigation selector for a player to choose their realm destination
+-- Uses XML UI panel instead of showOptionsDialog for multiplayer support
+function NavigationLib.navigateRealm(player)
+  local playerColor = player.color
+  if not isValidPlayerColor(playerColor) then return end
+
+  -- Update the navigator UI when opening selector
+  NavigationLib.updateRealmNavigator()
+
+  -- Show the XML navigation selector panel for this player
+  UI.setAttribute(playerColor .. "_nav_selector", "active", "true")
+end
+
+-- Close the navigation selector panel for a player
+function NavigationLib.closeNavigationSelector(playerColor)
+  UI.setAttribute(playerColor .. "_nav_selector", "active", "false")
+end
+
+-- Handle destination selection from XML UI button
+-- Called from Global.ttslua xml_selectDestination callback
+function NavigationLib.selectDestination(playerColor, optionIndex)
+  if not isValidPlayerColor(playerColor) then return end
+  local destination = GameState.NAVIGATE_OPTIONS[optionIndex]
+  if not destination then return end
+
+  -- Close the selector panel
+  NavigationLib.closeNavigationSelector(playerColor)
+
+  -- Store the selection
+  GameState.destinationPerPlayerColor[playerColor] = destination
+  printToColor("You selected: " .. destination, playerColor)
+
+  -- Update the navigator UI to reflect the new selection
+  NavigationLib.updateRealmNavigator()
+
+  -- Check if all players have now selected
+  NavigationLib.checkForNavigationSelection()
+end
+
+-- Callback when a player confirms their navigation selection
+function NavigationLib.navigateRealmCallback(selectedDestination, _, playerColor)
+  if not isValidPlayerColor(playerColor) then return end
+  GameState.destinationPerPlayerColor[playerColor] = selectedDestination
+  printToColor("You selected: " .. selectedDestination, playerColor)
+
+  -- Update the navigator UI to reflect the new selection
+  NavigationLib.updateRealmNavigator()
+
+  -- Check if all players have now selected
+  NavigationLib.checkForNavigationSelection()
+end
+
+-- Checks if all players have chosen a destination
+-- Broadcasts when complete and resets the selection state
+function NavigationLib.checkForNavigationSelection()
+  if not next(GameState.destinationPerPlayerColor) then return end
+
+  -- Check if all active players have made a selection
+  for _, player in ipairs(Player.getPlayers()) do
+    local playerColor = player.color
+    if isValidPlayerColor(playerColor) and GameState.destinationPerPlayerColor[playerColor] == nil then return end
+  end
+
+  -- All players have chosen - broadcast results
+  broadcastToAll("Every player has chosen a destination for this round!", "Green")
+  for playerColor, destination in pairs(GameState.destinationPerPlayerColor) do
+    printToAll(UtilLib.getColoredName(playerColor) .. " = " .. destination)
+  end
+
+  -- Sync game state to Supabase
+  local destinationsSnapshot = {}
+  for playerColor, destination in pairs(GameState.destinationPerPlayerColor) do
+    destinationsSnapshot[playerColor] = destination
+  end
+  GameSyncLib.syncAfterNavigation(destinationsSnapshot)
+
+  -- Reset per-navigation tracking (hand draws, etc.)
+  GameState.handDrawsThisNavigation = {}
+
+  -- Reset destination tracking
+  GameState.destinationPerPlayerColor = {}
+
+  -- Update UI to show all players as "not selected" (Red)
+  NavigationLib.updateRealmNavigator()
+
+  -- Store rewind state after navigation reset is complete
+  -- block_further_stores = true prevents auto-saves until next storeRewindState or 60s
+  storeRewindState(function(success, didSave)
+    if success then
+      if didSave then
+        GameState.debugPrint("[NavigationLib] Rewind state saved after navigation (auto-save blocked)")
+      else
+        GameState.debugPrint("[NavigationLib] Rewind state already up to date")
+      end
+    else
+      GameState.debugPrint("[NavigationLib] WARNING: Failed to store rewind state")
+    end
+  end, true)
+end
+
+-- Updates the Realm Navigator UI to show active players and their selection status
+function NavigationLib.updateRealmNavigator()
+  local activePlayers = 0
+
+  for _, playerColor in ipairs(UITheme.validPlayerColors) do
+    if Player[playerColor].seated then
+      activePlayers = activePlayers + 1
+      UI.setAttribute(playerColor .. "_navTracker_panel", "active", "true")
+
+      -- Update player name
+      local steamName = Player[playerColor].steam_name or playerColor
+      UI.setAttribute(playerColor .. "_navTracker_text", "text", steamName)
+
+      -- Update color based on selection status
+      local hasSelected = GameState.destinationPerPlayerColor[playerColor] ~= nil
+      UI.setAttribute(playerColor .. "_navTracker_panel", "color", hasSelected and "Green" or "Red")
+    else
+      UI.setAttribute(playerColor .. "_navTracker_panel", "active", "false")
+    end
+  end
+
+  -- Make sure the navigator panel is visible
+  UI.setAttribute("vl_RealmNavigator", "active", "true")
+
+  -- Update navigator height based on number of active players
+  local height = BASE_PANEL_HEIGHT + (PLAYER_ROW_HEIGHT * math.max(1, activePlayers))
+  UI.setAttribute("vl_RealmNavigator", "height", tostring(height))
+end
+
+return NavigationLib

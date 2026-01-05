@@ -1,0 +1,480 @@
+-- CharacterSelectLib.ttslua
+-- Module for character selection and playermat spawning logic
+
+local CharacterSelectLib = {}
+
+local GameState = require("state/GameState")
+local UtilLib = require("util/UtilLib")
+local PlayerMatLib = require("game/PlayerMatLib")
+local UILib = require("ui/UILib")
+local ObjectTemplateLib = require("util/ObjectTemplateLib")
+local SupabaseLib = require("api/SupabaseLib")
+local AssetLoaderLib = require("api/AssetLoaderLib")
+local TravelerLib = require("game/TravelerLib")
+
+-------------------------------------------------------------------------------
+-- MARK: Constants
+-------------------------------------------------------------------------------
+
+-- Token spawn configuration
+-- Snap positions are centralized in PlayerMatLib - use PlayerMatLib.getSnapPositions()
+
+-- Spirit World data (from objects/*.json)
+-- Note: imageUrl is fetched from API via SupabaseLib.getSpiritWorldUrl()
+local SPIRIT_WORLD_DATA = {
+  position = { x = 0, y = 0.981, z = 0 },
+  rotation = { x = 0, y = 270, z = 0 },
+  scale = { x = 20.1, y = 1, z = 20.1 },
+  snapPoints = {
+    { pos = { x = 0.302, y = 0.2, z = 0 }, rot = { x = 0, y = 90, z = 0 } },
+    { pos = { x = 0.151, y = 0.2, z = -0.261 }, rot = { x = 0, y = 150, z = 0 } },
+    { pos = { x = -0.151, y = 0.2, z = -0.261 }, rot = { x = 0, y = 210, z = 0 } },
+    { pos = { x = -0.302, y = 0.2, z = 0 }, rot = { x = 0, y = 270, z = 0 } },
+    { pos = { x = -0.151, y = 0.2, z = 0.261 }, rot = { x = 0, y = 330, z = 0 } },
+    { pos = { x = 0.151, y = 0.2, z = 0.261 }, rot = { x = 0, y = 30, z = 0 } }
+  }
+}
+
+-------------------------------------------------------------------------------
+-- MARK: Character Selection Functions
+-------------------------------------------------------------------------------
+
+-- Valid player colors that have mat positions defined
+local VALID_PLAYER_COLORS = {
+  Red = true,
+  Orange = true,
+  Yellow = true,
+  Green = true,
+  Blue = true,
+  Purple = true
+}
+
+function CharacterSelectLib.selectCharacter(player, value, id)
+  if GameState.gameStarted then
+    broadcastToColor("Game has already started!", player.color, Color.Red)
+    return
+  end
+
+  local playerColor = player.color
+
+  -- Validate player color has a mat position
+  if not VALID_PLAYER_COLORS[playerColor] then
+    broadcastToColor("Please sit in a valid seat (Red, Orange, Yellow, Green, Blue, or Purple) to select a character.", playerColor, Color.Orange)
+    return
+  end
+
+  -- Extract character name from button id (btn_char_Myrtle -> Myrtle)
+  local charName = string.match(id, "btn_char_(.+)")
+  if not charName then return end
+
+  -- Check if player is clicking their already selected character (deselect)
+  local currentSelection = GameState.selectedCharacters[playerColor]
+  if currentSelection == charName then
+    GameState.selectedCharacters[playerColor] = nil
+    broadcastToAll(UtilLib.getColoredName(playerColor) .. " deselected " .. charName)
+    return true  -- Signal that UI needs refresh
+  end
+
+  -- Check if this character is already taken by another player
+  for otherColor, selectedChar in pairs(GameState.selectedCharacters) do
+    if selectedChar == charName and otherColor ~= playerColor then
+      broadcastToColor(charName .. " is already selected by " .. otherColor, playerColor, Color.Orange)
+      return
+    end
+  end
+
+  -- If player already had a different character, note it for the message
+  local previousChar = currentSelection
+
+  -- Assign new character
+  GameState.selectedCharacters[playerColor] = charName
+
+  -- Announce selection
+  if previousChar then
+    broadcastToAll(UtilLib.getColoredName(playerColor) .. " switched from " .. previousChar .. " to " .. charName)
+  else
+    broadcastToAll(UtilLib.getColoredName(playerColor) .. " selected " .. charName)
+  end
+
+  -- Refresh the UI to show updated selections
+  -- Note: This should call a UI refresh function in Global or UILib
+  return true  -- Signal that UI needs refresh
+end
+
+function CharacterSelectLib.startGame(player)
+  if GameState.gameStarted then
+    broadcastToColor("Game has already started!", player.color, Color.Red)
+    return
+  end
+
+  -- Check if at least one player has selected a character
+  local selectionCount = 0
+  local selectionList = {}
+  for playerColor, charName in pairs(GameState.selectedCharacters) do
+    selectionCount = selectionCount + 1
+    table.insert(selectionList, playerColor .. " → " .. charName)
+  end
+
+  GameState.debugPrint("[CharSelect] Starting game with " .. selectionCount .. " players")
+
+  if selectionCount == 0 then
+    broadcastToAll("At least one player must select a character!", Color.Red)
+    return
+  end
+
+  GameState.gameStarted = true
+  GameState.generateGameId()
+
+  -- Announce what's being spawned
+  broadcastToAll("Starting game with " .. selectionCount .. " players...", Color.Green)
+  for _, entry in ipairs(selectionList) do
+    broadcastToAll("  " .. entry, Color.White)
+  end
+
+  -- STEP 1: Spawn ALL game bags (spirits, artifacts, monsters, runes, etc.)
+  -- This is the ONLY place that spawns asset bags
+  AssetLoaderLib.loadAllAssets(SupabaseLib.getData(), { preload = false })
+
+  -- STEP 2: Spawn Spirit World map
+  CharacterSelectLib.spawnSpiritWorld()
+
+  -- STEP 2b: Spawn the first traveler card (rotation starts here)
+  Wait.frames(function()
+    TravelerLib.ensureTravelerOnBoard()
+  end, 10)
+
+  -- STEP 3: Spawn playermats for each player who selected a character
+  CharacterSelectLib.spawnSelectedPlayermats()
+
+  -- STEP 4: Spawn status tokens for selected players
+  CharacterSelectLib.spawnTokensForSelectedPlayers()
+
+  broadcastToAll("Spawning game board, player mats, and tokens...", Color.Green)
+
+  return true  -- Signal that game has started and UI needs refresh
+end
+
+function CharacterSelectLib.spawnSelectedPlayermats()
+  -- Build a list of mats to spawn with their data
+  local matsToSpawn = {}
+  for playerColor, charName in pairs(GameState.selectedCharacters) do
+    local posData = GameState.PLAYERMAT_POSITIONS[playerColor]
+    if posData then
+      table.insert(matsToSpawn, {
+        playerColor = playerColor,
+        charName = charName,
+        pos = Vector(posData.pos.x, posData.pos.y, posData.pos.z),
+        rot = Vector(posData.rot.x, posData.rot.y, posData.rot.z)
+      })
+    else
+      broadcastToAll("Warning: No mat position defined for " .. playerColor, "Orange")
+    end
+  end
+
+  broadcastToAll("Spawning " .. #matsToSpawn .. " mats...", "Green")
+
+  -- Spawn mats with staggered delays
+  for i, matInfo in ipairs(matsToSpawn) do
+    local delay = (i - 1) * 10
+
+    local capturedColor = matInfo.playerColor
+    local capturedChar = matInfo.charName
+    local capturedPos = matInfo.pos
+    local capturedRot = matInfo.rot
+
+    Wait.frames(function()
+      CharacterSelectLib.spawnPlayermatForCharacter(capturedChar, capturedPos, capturedRot, capturedColor)
+    end, delay)
+  end
+end
+
+function CharacterSelectLib.spawnPlayermatForCharacter(charName, position, rotation, playerColor)
+  broadcastToAll(playerColor .. ": Spawning " .. charName .. " at (" .. position.x .. ", " .. position.y .. ", " .. position.z .. ")", "Yellow")
+
+  local charData = GameState.characterMatData[charName]
+  local imageUrl = charData and charData.imageUrl or ""
+  local chibiUrl = charData and charData.chibiUrl or ""
+
+  local matData = {
+    Name = "Custom_Tile",
+    Transform = {
+      posX = position.x,
+      posY = position.y,
+      posZ = position.z,
+      rotX = rotation.x,
+      rotY = rotation.y,
+      rotZ = rotation.z,
+      scaleX = 9.5,
+      scaleY = 1,
+      scaleZ = 9.5
+    },
+    Nickname = charName,
+    Locked = true,
+    Tags = { "Playermat" },
+    ColorDiffuse = { r = 0, g = 0, b = 0 },
+    CustomImage = {
+      ImageURL = imageUrl,
+      ImageScalar = 1,
+      WidthScale = 0,
+      CustomTile = {
+        Type = 0,
+        Thickness = 0.1,
+        Stackable = false,
+        Stretch = true
+      }
+    },
+    -- Attach snap points from centralized configuration
+    AttachedSnapPoints = PlayerMatLib.generateSnapPointsData()
+  }
+
+  local spawnedObj = spawnObjectData({ data = matData })
+
+  -- Register the mat with PlayerMatLib after it's fully spawned and set up rune slot UI
+  if playerColor and spawnedObj then
+    Wait.frames(function()
+      PlayerMatLib.registerPlayerMat(playerColor, spawnedObj)
+      UILib.setupRuneSlotsOnMat(spawnedObj, playerColor)
+    end, 10)
+  end
+
+  -- Spawn the chibi figurine for this character
+  if chibiUrl and chibiUrl ~= "" then
+    CharacterSelectLib.spawnFigurineForMat(charName, chibiUrl, position, rotation, playerColor)
+  end
+end
+
+--- Spawn a chibi figurine for a player mat
+---@param charName string Character name
+---@param chibiUrl string URL for the chibi image
+---@param matPosition Vector Mat position
+---@param matRotation Vector Mat rotation
+---@param playerColor string Player color
+function CharacterSelectLib.spawnFigurineForMat(charName, chibiUrl, matPosition, matRotation, playerColor)
+  local figurineData = ObjectTemplateLib.getTemplate("Figurine")
+  figurineData.Nickname = charName .. " Figurine"
+  figurineData.Tags = { "PlayerFigurine" }
+  figurineData.CustomImage.ImageURL = chibiUrl
+  figurineData.CustomImage.ImageSecondaryURL = chibiUrl  -- Same image for back
+
+  -- Position figurine offset from mat center (in local coordinates, then convert)
+  -- Local position from TTS positionToLocal (already accounts for mat scale of 9.5)
+  local localOffset = Vector(-1.233, 0.351, -0.488)
+  local MAT_SCALE = 9.5
+
+  -- Convert local offset to world offset based on mat rotation and scale
+  -- Negate angle for TTS's clockwise-positive rotation convention
+  local scaledX = localOffset.x * MAT_SCALE
+  local scaledZ = localOffset.z * MAT_SCALE
+  local radY = math.rad(-matRotation.y)
+  local worldOffsetX = scaledX * math.cos(radY) - scaledZ * math.sin(radY)
+  local worldOffsetZ = scaledX * math.sin(radY) + scaledZ * math.cos(radY)
+
+  figurineData.Transform.posX = matPosition.x + worldOffsetX
+  figurineData.Transform.posY = matPosition.y + localOffset.y
+  figurineData.Transform.posZ = matPosition.z + worldOffsetZ
+  figurineData.Transform.rotX = 0
+  figurineData.Transform.rotY = matRotation.y
+  figurineData.Transform.rotZ = 0
+  figurineData.Transform.scaleX = 1.5
+  figurineData.Transform.scaleY = 1.5
+  figurineData.Transform.scaleZ = 1.5
+
+  spawnObjectData({ data = figurineData })
+end
+
+--- Convert local position to world position using mat position and rotation
+--- TTS/Unity uses left-handed coordinates where positive Y rotation is clockwise
+local MAT_SCALE = 9.5
+local function localToWorld(localPos, matPosition, matRotation)
+  local scaledX = localPos.x * MAT_SCALE
+  local scaledZ = localPos.z * MAT_SCALE
+  -- Negate angle for TTS's clockwise-positive rotation convention
+  local radY = math.rad(-matRotation.y)
+  local worldOffsetX = scaledX * math.cos(radY) - scaledZ * math.sin(radY)
+  local worldOffsetZ = scaledX * math.sin(radY) + scaledZ * math.cos(radY)
+  return Vector(
+    matPosition.x + worldOffsetX,
+    matPosition.y + localPos.y,
+    matPosition.z + worldOffsetZ
+  )
+end
+
+local function clearStatusTokensForPlayer(playerColor)
+  for _, obj in ipairs(getObjectsWithTag("Status")) do
+    if PlayerMatLib.findPlayerColorForPosition(obj.getPosition()) == playerColor then
+      obj.destruct()
+    end
+  end
+end
+
+--- Spawn the current status token for a player (single token)
+--- Uses status token data from Supabase (different images for each token)
+--- Uses centralized snap positions from PlayerMatLib
+---@param playerColor string Player color for logging
+---@param matPosition Vector Mat world position
+---@param matRotation Vector Mat rotation
+function CharacterSelectLib.spawnStatusTokenForPlayer(playerColor, matPosition, matRotation)
+  local statusLevel = PlayerMatLib.getStatus(playerColor)
+  local statusTokens = GameState.statusTokens
+  if not statusTokens or not statusTokens[statusLevel] then
+    statusTokens = SupabaseLib.getStatusTokensByLevel()
+    GameState.statusTokens = statusTokens
+  end
+
+  local statusToken = statusTokens[statusLevel]
+  if not statusToken or not statusToken.imageUrl then
+    GameState.debugPrint("[CharacterSelectLib] Warning: Status token not found for level " .. tostring(statusLevel))
+    return
+  end
+
+  clearStatusTokensForPlayer(playerColor)
+
+  local statusPositions = PlayerMatLib.getSnapPositions("Status")
+  local basePos = statusPositions[1]  -- Status has only 1 base position
+  local localPos = Vector(basePos.x, basePos.y, basePos.z)
+  local worldPos = localToWorld(localPos, matPosition, matRotation)
+
+  local tags = { "Status" }
+  if statusToken.name and statusToken.name ~= "" then
+    table.insert(tags, statusToken.name)
+  end
+
+  local tokenData = {
+    Name = "Custom_Token",
+    Transform = {
+      posX = worldPos.x,
+      posY = worldPos.y,
+      posZ = worldPos.z,
+      rotX = 0,
+      rotY = matRotation.y,
+      rotZ = 0,
+      scaleX = 2.35,
+      scaleY = 1,
+      scaleZ = 2.35
+    },
+    Nickname = statusToken.name or "Status",
+    Tags = tags,
+    Locked = false,
+    ColorDiffuse = { r = 1, g = 1, b = 1 },
+    CustomImage = {
+      ImageURL = statusToken.imageUrl,
+      ImageScalar = 1,
+      WidthScale = 0,
+      CustomToken = {
+        Thickness = 0.2,
+        MergeDistancePixels = 25,
+        StandUp = false,
+        Stackable = false
+      }
+    }
+  }
+
+  spawnObjectData({ data = tokenData })
+end
+
+--- Update the status token for a player (replaces existing token)
+---@param playerColor string Player color for logging
+function CharacterSelectLib.updateStatusToken(playerColor)
+  local matObject = PlayerMatLib.getPlayerMatObject(playerColor)
+  if matObject then
+    CharacterSelectLib.spawnStatusTokenForPlayer(playerColor, matObject.getPosition(), matObject.getRotation())
+    return
+  end
+
+  local posData = GameState.PLAYERMAT_POSITIONS[playerColor]
+  if posData then
+    local matPosition = Vector(posData.pos.x, posData.pos.y, posData.pos.z)
+    local matRotation = Vector(posData.rot.x, posData.rot.y, posData.rot.z)
+    CharacterSelectLib.spawnStatusTokenForPlayer(playerColor, matPosition, matRotation)
+  end
+end
+
+function CharacterSelectLib.spawnTokensForSelectedPlayers()
+  -- Wait 1 second for mats to be fully spawned
+  Wait.time(function()
+
+    -- Spawn tokens for each selected player using known mat positions
+    local playerIndex = 0
+    for playerColor, _ in pairs(GameState.selectedCharacters) do
+      local posData = GameState.PLAYERMAT_POSITIONS[playerColor]
+
+      if posData then
+        local matPosition = Vector(posData.pos.x, posData.pos.y, posData.pos.z)
+        local matRotation = Vector(posData.rot.x, posData.rot.y, posData.rot.z)
+        playerIndex = playerIndex + 1
+
+        -- Stagger token spawning per player
+        local baseDelay = (playerIndex - 1) * 20
+
+        Wait.frames(function()
+          CharacterSelectLib.spawnStatusTokenForPlayer(playerColor, matPosition, matRotation)
+        end, baseDelay)
+      end
+    end
+
+  end, 1)  -- 1 second delay
+end
+
+-------------------------------------------------------------------------------
+-- MARK: Spirit World Spawning
+-------------------------------------------------------------------------------
+
+--- Spawn the Spirit World map tile at center of table
+function CharacterSelectLib.spawnSpiritWorld()
+  local sw = SPIRIT_WORLD_DATA
+
+  -- Get image URL from icon pool
+  local imageUrl = SupabaseLib.getSpiritWorldUrl()
+
+  if not imageUrl or imageUrl == "" then
+    GameState.debugPrint("[CharacterSelectLib] Warning: SpiritWorld image URL not found in API data")
+    return
+  end
+
+  GameState.debugPrint("[CharacterSelectLib] Spawning SpiritWorld with URL: " .. imageUrl)
+
+  -- Build snap points array
+  local snapPoints = {}
+  for _, sp in ipairs(sw.snapPoints) do
+    table.insert(snapPoints, {
+      Position = { x = sp.pos.x, y = sp.pos.y, z = sp.pos.z },
+      Rotation = { x = sp.rot.x, y = sp.rot.y, z = sp.rot.z },
+      Tags = { "HexSpirit" }
+    })
+  end
+
+  local spiritWorldData = {
+    Name = "Custom_Tile",
+    Nickname = "SpiritWorld",
+    Transform = {
+      posX = sw.position.x,
+      posY = sw.position.y,
+      posZ = sw.position.z,
+      rotX = sw.rotation.x,
+      rotY = sw.rotation.y,
+      rotZ = sw.rotation.z,
+      scaleX = sw.scale.x,
+      scaleY = sw.scale.y,
+      scaleZ = sw.scale.z
+    },
+    Locked = true,
+    Tags = { "NotInteractable" },
+    ColorDiffuse = { r = 0, g = 0, b = 0 },
+    CustomImage = {
+      ImageURL = imageUrl,
+      ImageScalar = 1,
+      WidthScale = 0,
+      CustomTile = {
+        Type = 0,
+        Thickness = 0.2,
+        Stackable = false,
+        Stretch = true
+      }
+    },
+    AttachedSnapPoints = snapPoints
+  }
+
+  spawnObjectData({ data = spiritWorldData })
+end
+
+return CharacterSelectLib

@@ -1,0 +1,95 @@
+do
+  local WebRequestLib = {}
+
+  -- This function encapsulates the entire request logic, providing distinct
+  -- success and error callbacks that directly receive the processed data or error.
+  ---@param uri table|string The URL for the GET request.
+  ---@param onSuccess fun(content: string) Called when the request is successful.
+  ---@param onError fun(errorMessage: string, responseCode: number|nil) Called when an error occurs (either network or HTTP error).
+  ---@param headers table|nil Optional headers to include in the request.
+  function WebRequestLib.get(uri, onSuccess, onError, headers)
+    -- Format URI if it's a table (e.g., {"api", "data"} -> "api/data")
+    if type(uri) == "table" then
+      uri = table.concat(uri, "/")
+    end
+
+    -- Use custom request if headers provided, otherwise use simple get
+    local function handleResponse(requestInstance)
+      if requestInstance.is_error then
+        -- Network level error
+        local errorMessage = requestInstance.error or "Unknown network error"
+        if onError then
+          onError(errorMessage)
+        end
+      elseif requestInstance.response_code and requestInstance.response_code >= 400 then
+        -- HTTP error (4xx or 5xx status codes)
+        local errorMessage = "HTTP Error " ..
+        requestInstance.response_code .. ": " .. (requestInstance.text or "No error message provided.")
+        if onError then
+          onError(errorMessage, requestInstance.response_code)
+        end
+      else
+        -- Successful request (2xx or 3xx status codes)
+        if onSuccess then
+          onSuccess(requestInstance.text)
+        end
+      end
+    end
+
+    if headers then
+      WebRequest.custom(uri, "GET", true, "", headers, handleResponse)
+    else
+      WebRequest.get(uri, handleResponse)
+    end
+  end
+
+  --- POST request with JSON body
+  ---@param uri table|string The URL for the POST request.
+  ---@param body table|string The request body (table will be JSON-encoded).
+  ---@param onSuccess fun(content: string) Called when the request is successful.
+  ---@param onError fun(errorMessage: string, responseCode: number|nil) Called when an error occurs.
+  ---@param headers table|nil Optional additional headers to include.
+  function WebRequestLib.post(uri, body, onSuccess, onError, headers)
+    -- Format URI if it's a table
+    if type(uri) == "table" then
+      uri = table.concat(uri, "/")
+    end
+
+    -- JSON-encode body if it's a table
+    local bodyStr = body
+    if type(body) == "table" then
+      bodyStr = JSON.encode(body)
+    end
+
+    -- Build headers with Content-Type
+    local requestHeaders = { ["Content-Type"] = "application/json" }
+    if headers then
+      for k, v in pairs(headers) do
+        requestHeaders[k] = v
+      end
+    end
+
+    local function handleResponse(requestInstance)
+      if requestInstance.is_error then
+        local errorMessage = requestInstance.error or "Unknown network error"
+        if onError then
+          onError(errorMessage)
+        end
+      elseif requestInstance.response_code and requestInstance.response_code >= 400 then
+        local errorMessage = "HTTP Error " ..
+          requestInstance.response_code .. ": " .. (requestInstance.text or "No error message provided.")
+        if onError then
+          onError(errorMessage, requestInstance.response_code)
+        end
+      else
+        if onSuccess then
+          onSuccess(requestInstance.text)
+        end
+      end
+    end
+
+    WebRequest.custom(uri, "POST", true, bodyStr, requestHeaders, handleResponse)
+  end
+
+  return WebRequestLib
+end

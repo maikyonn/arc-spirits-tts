@@ -1,0 +1,416 @@
+-------------------------------------------------------------------------------
+-- DebugPanelUI: Debug Information Panel
+-- Displays detailed game state for debugging and development
+-------------------------------------------------------------------------------
+
+local UITheme = require("ui/UITheme")
+local UIComponents = require("ui/UIComponents")
+local GameState = require("state/GameState")
+
+local DebugPanelUI = {}
+
+-------------------------------------------------------------------------------
+-- MARK: Constants
+-------------------------------------------------------------------------------
+
+local PANEL_WIDTH = 400
+local PANEL_HEIGHT = 580
+
+-------------------------------------------------------------------------------
+-- MARK: Card Section Builder
+-------------------------------------------------------------------------------
+
+--- Build a debug info card section
+---@param title string The section title
+---@param contentId string The ID for the content text element
+---@param contentHeight number The preferred height of the content area
+---@return table The card panel XML
+local function buildDebugCard(title, contentId, contentHeight)
+  return {
+    tag = "Panel",
+    attributes = {
+      color = UITheme.colors.surface,
+      padding = "10 10 10 10"
+    },
+    children = {
+      {
+        tag = "VerticalLayout",
+        attributes = { spacing = 4 },
+        children = {
+          {
+            tag = "Text",
+            attributes = {
+              text = title,
+              fontSize = UITheme.sizes.fontSize.xs,
+              color = UITheme.colors.muted,
+              alignment = "UpperLeft",
+              preferredHeight = 14
+            }
+          },
+          {
+            tag = "Text",
+            attributes = {
+              id = contentId,
+              text = "(none)",
+              fontSize = UITheme.sizes.fontSize.sm,
+              color = UITheme.colors.text,
+              alignment = "UpperLeft",
+              preferredHeight = contentHeight
+            }
+          }
+        }
+      }
+    }
+  }
+end
+
+-------------------------------------------------------------------------------
+-- MARK: Main Panel Builder
+-------------------------------------------------------------------------------
+
+--- Build the debug panel window for a player
+---@param playerColor string The player color
+---@return table The debug panel XML
+function DebugPanelUI.build(playerColor)
+  return {
+    tag = "Panel",
+    attributes = {
+      id = playerColor .. "_debug_window",
+      width = PANEL_WIDTH,
+      height = PANEL_HEIGHT,
+      color = UITheme.colors.background,
+      rectAlignment = "MiddleCenter",
+      visibility = playerColor,
+      active = false,  -- Initially hidden
+      outline = playerColor,
+      outlineSize = "2"
+    },
+    children = {
+      {
+        tag = "VerticalLayout",
+        attributes = { spacing = 8, padding = "12 12 12 12" },
+        children = {
+          -- Header row with character name and buttons
+          {
+            tag = "HorizontalLayout",
+            attributes = { preferredHeight = 32, spacing = 6 },
+            children = {
+              -- Debug title / character name
+              {
+	                tag = "Text",
+	                attributes = {
+	                  id = playerColor .. "_debug_char",
+	                  text = "DEBUG",
+	                  fontSize = UITheme.sizes.fontSize.lg,
+	                  font = "font_opsilon/opsilon-regular",
+	                  color = playerColor,
+	                  alignment = "MiddleLeft",
+	                  flexibleWidth = 1
+	                }
+	              },
+              -- Reset button
+	              UIComponents.button({
+	                id = playerColor .. "_debug_reset",
+	                onClick = "xml_resetGame",
+	                text = "Reset",
+	                fontSize = UITheme.sizes.fontSize.xs,
+	                width = 50,
+	                height = 28,
+	                color = UITheme.colors.danger,
+	                textColor = "#ff6666"
+	              }),
+              -- Close button
+	              UIComponents.button({
+	                id = playerColor .. "_debug_close",
+	                onClick = "xml_closeDebugPanel",
+	                text = "X",
+	                fontSize = UITheme.sizes.fontSize.sm,
+	                width = 32,
+	                height = 32,
+	                color = UITheme.colors.surface,
+	                textColor = UITheme.colors.muted
+	              })
+            }
+          },
+          -- Status bar (mat GUID)
+          {
+            tag = "Panel",
+            attributes = { preferredHeight = 20, color = UITheme.colors.surface },
+            children = {
+              {
+	                tag = "Text",
+	                attributes = {
+	                  id = playerColor .. "_dbg_status",
+	                  text = "Mat: --",
+	                  fontSize = UITheme.sizes.fontSize.xs,
+	                  color = UITheme.colors.muted,
+	                  alignment = "MiddleCenter"
+	                }
+	              }
+            }
+          },
+          -- Origin Destiny panel (conditional display)
+          {
+            tag = "Panel",
+            attributes = {
+              id = playerColor .. "_dbg_destiny_panel",
+              preferredHeight = 28,
+              color = UITheme.colors.surface,
+              active = false
+            },
+            children = {
+              {
+	                tag = "Text",
+	                attributes = {
+	                  id = playerColor .. "_dbg_calling",
+	                  text = "",
+	                  fontSize = UITheme.sizes.fontSize.xs,
+	                  color = UITheme.colors.primary,
+	                  alignment = "MiddleCenter"
+	                }
+	              }
+            }
+          },
+          -- Scrollable sections container
+          {
+            tag = "VerticalScrollView",
+            attributes = { preferredHeight = 460, scrollSensitivity = 30 },
+            children = {
+              {
+                tag = "VerticalLayout",
+                attributes = { spacing = 6, padding = "0 4 0 0" },
+                children = {
+                  -- CLASSES card
+                  buildDebugCard(
+                    "CLASSES",
+                    playerColor .. "_dbg_classes",
+                    90
+                  ),
+                  -- ORIGINS card
+                  buildDebugCard(
+                    "ORIGINS",
+                    playerColor .. "_dbg_origins",
+                    50
+                  ),
+                  -- DICE POOL card
+                  buildDebugCard(
+                    "DICE POOL",
+                    playerColor .. "_dbg_dice",
+                    70
+                  ),
+                  -- SPIRITS card
+                  buildDebugCard(
+                    "SPIRITS ON MAT",
+                    playerColor .. "_dbg_spirits",
+                    120
+                  )
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+end
+
+-------------------------------------------------------------------------------
+-- MARK: Update Functions
+-------------------------------------------------------------------------------
+
+--- Update the debug panel content for a player
+---@param playerColor string The player color
+---@param playerState table The player's state from PlayerMatLib
+---@param characterName string The selected character name
+function DebugPanelUI.update(playerColor, playerState, characterName)
+  -- Header with character name
+  UI.setAttribute(playerColor .. "_debug_char", "text", characterName or "None")
+
+  if not playerState then
+    UI.setAttribute(playerColor .. "_dbg_status", "text", "NO MAT REGISTERED")
+    UI.setAttribute(playerColor .. "_dbg_destiny_panel", "active", false)
+    UI.setAttribute(playerColor .. "_dbg_classes", "text", "(no mat)")
+    UI.setAttribute(playerColor .. "_dbg_origins", "text", "(no mat)")
+    UI.setAttribute(playerColor .. "_dbg_dice", "text", "(no mat)")
+    UI.setAttribute(playerColor .. "_dbg_spirits", "text", "(no mat)")
+    return
+  end
+
+  -- Status line (mat GUID)
+  local matGuidShort = playerState.matGUID and playerState.matGUID:sub(1, 8) or "N/A"
+  UI.setAttribute(playerColor .. "_dbg_status", "text", "Mat GUID: " .. matGuidShort)
+
+  -- Origin destiny status (show/hide panel)
+  local originDestinyState = GameState.originDestinyActive and GameState.originDestinyActive[playerColor]
+  if originDestinyState then
+    UI.setAttribute(playerColor .. "_dbg_destiny_panel", "active", true)
+    if originDestinyState.activated then
+      UI.setAttribute(playerColor .. "_dbg_calling", "text", "DESTINY ACTIVE: " .. originDestinyState.originName)
+    else
+      local needed = 4 - (originDestinyState.uniqueCount or 0)
+      UI.setAttribute(playerColor .. "_dbg_calling", "text",
+        "DESTINY: " .. originDestinyState.originName .. " (need " .. needed .. " more)")
+    end
+  else
+    UI.setAttribute(playerColor .. "_dbg_destiny_panel", "active", false)
+  end
+
+  -- Update CLASSES section
+  DebugPanelUI.updateClassesSection(playerColor, playerState.totals)
+
+  -- Update ORIGINS section
+  DebugPanelUI.updateOriginsSection(playerColor, playerState.totals)
+
+  -- Update DICE POOL section
+  DebugPanelUI.updateDicePoolSection(playerColor, originDestinyState)
+
+  -- Update SPIRITS section
+  DebugPanelUI.updateSpiritsSection(playerColor, playerState.spirits)
+end
+
+--- Update the CLASSES section content
+---@param playerColor string The player color
+---@param totals table The player's totals { classes = {}, origins = {} }
+function DebugPanelUI.updateClassesSection(playerColor, totals)
+  local classLines = {}
+
+  -- Get sorted class names
+  local allClassNames = {}
+  for className, _ in pairs(GameState.classesByName or {}) do
+    table.insert(allClassNames, className)
+  end
+  table.sort(allClassNames)
+
+  for _, className in ipairs(allClassNames) do
+    local count = totals.classes[className] or 0
+    if count > 0 then
+      local bpIndicator = ""
+      local classData = GameState.classesByName[className]
+      if classData and classData.effect_schema then
+        for _, bp in ipairs(classData.effect_schema) do
+          if bp.count <= count then
+            -- Color indicator based on breakpoint
+            if bp.color == "bronze" then bpIndicator = " [B]"
+            elseif bp.color == "silver" then bpIndicator = " [S]"
+            elseif bp.color == "gold" then bpIndicator = " [G]"
+            elseif bp.color == "prismatic" then bpIndicator = " [P]"
+            else bpIndicator = " [+]"
+            end
+          end
+        end
+      end
+      table.insert(classLines, string.format("%-12s %d%s", className, count, bpIndicator))
+    end
+  end
+
+  local text = #classLines > 0 and table.concat(classLines, "\n") or "No classes"
+  UI.setAttribute(playerColor .. "_dbg_classes", "text", text)
+end
+
+--- Update the ORIGINS section content
+---@param playerColor string The player color
+---@param totals table The player's totals { classes = {}, origins = {} }
+function DebugPanelUI.updateOriginsSection(playerColor, totals)
+  local originLines = {}
+  local sortedOrigins = {}
+
+  if totals.origins and next(totals.origins) then
+    for originName, count in pairs(totals.origins) do
+      table.insert(sortedOrigins, { name = originName, count = count })
+    end
+    table.sort(sortedOrigins, function(a, b) return a.count > b.count end)
+    for _, o in ipairs(sortedOrigins) do
+      table.insert(originLines, string.format("%-12s %d", o.name, o.count))
+    end
+  end
+
+  local text = #originLines > 0 and table.concat(originLines, "\n") or "No origins"
+  UI.setAttribute(playerColor .. "_dbg_origins", "text", text)
+end
+
+--- Update the DICE POOL section content
+---@param playerColor string The player color
+---@param originDestinyState table|nil The origin destiny state if active
+function DebugPanelUI.updateDicePoolSection(playerColor, originDestinyState)
+  local diceLines = {}
+
+  if originDestinyState then
+    if originDestinyState.activated then
+      table.insert(diceLines, "2x Exalted Attack")
+      table.insert(diceLines, "1x Defense Dice")
+    else
+      table.insert(diceLines, "Destiny pending...")
+      table.insert(diceLines, "Need 4 unique " .. originDestinyState.originName)
+    end
+  else
+    -- Normal dice from traits
+    local traitSettings = GameState.traitSettingsPerPlayer[playerColor]
+    if traitSettings then
+      for className, traitCount in pairs(traitSettings) do
+        if className ~= "Defender" then
+          local classData = GameState.classesByName[className]
+          if classData and classData.effect_schema then
+            local bestBp = nil
+            for _, bp in ipairs(classData.effect_schema) do
+              if bp.count <= traitCount then
+                if not bestBp or bp.count > bestBp.count then bestBp = bp end
+              end
+            end
+            if bestBp and bestBp.effects then
+              for _, eff in ipairs(bestBp.effects) do
+                if eff.type == "dice" and eff.quantity > 0 then
+                  local diceData = GameState.diceById[eff.dice_id]
+                  local name = diceData and diceData.name or "Unknown"
+                  table.insert(diceLines, string.format("%dx %s", eff.quantity, name))
+                end
+              end
+            end
+          end
+        end
+      end
+    end
+    table.insert(diceLines, "1x Defense Dice (base)")
+  end
+
+  local text = #diceLines > 0 and table.concat(diceLines, "\n") or "No dice"
+  UI.setAttribute(playerColor .. "_dbg_dice", "text", text)
+end
+
+--- Update the SPIRITS section content
+---@param playerColor string The player color
+---@param spirits table The player's spirits { [slotIndex] = spiritData }
+function DebugPanelUI.updateSpiritsSection(playerColor, spirits)
+  local spiritLines = {}
+  local spiritCount = 0
+
+  for _, spirit in pairs(spirits or {}) do
+    spiritCount = spiritCount + 1
+    local traits = {}
+    for cName, cCount in pairs(spirit.classes or {}) do
+      table.insert(traits, cName:sub(1, 3) .. ":" .. cCount)
+    end
+    local traitStr = #traits > 0 and "  " .. table.concat(traits, " ") or ""
+    table.insert(spiritLines, (spirit.name or "Unknown") .. traitStr)
+  end
+
+  local text = spiritCount > 0 and table.concat(spiritLines, "\n") or "No spirits on mat"
+  UI.setAttribute(playerColor .. "_dbg_spirits", "text", text)
+end
+
+-------------------------------------------------------------------------------
+-- MARK: Show/Hide Functions
+-------------------------------------------------------------------------------
+
+--- Show the debug panel for a player
+---@param playerColor string The player color
+function DebugPanelUI.show(playerColor)
+  UI.setAttribute(playerColor .. "_debug_window", "active", true)
+end
+
+--- Hide the debug panel for a player
+---@param playerColor string The player color
+function DebugPanelUI.hide(playerColor)
+  UI.setAttribute(playerColor .. "_debug_window", "active", false)
+end
+
+return DebugPanelUI

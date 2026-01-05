@@ -1,0 +1,137 @@
+local UITheme = require("ui/UITheme")
+local UIComponents = {}
+
+function UIComponents.panel(config)
+  return {
+    tag = "Panel",
+    attributes = {
+      id = config.id,
+      width = config.width or 300,
+      height = config.height or 400,
+      color = config.color or UITheme.colors.surface,
+      rectAlignment = config.alignment or "MiddleCenter",
+      offsetXY = config.offset or "0 0",
+      visibility = config.visibility,
+      active = config.active ~= false,
+      outline = config.outline or UITheme.colors.muted,
+      outlineSize = config.outlineSize or "1",
+      padding = config.padding or UITheme.sizes.padding.md
+    },
+    children = config.children or {}
+  }
+end
+
+function UIComponents.button(config)
+  local presets = {
+    default = { color = UITheme.colors.surface, textColor = UITheme.colors.text },
+    primary = { color = UITheme.colors.primary, textColor = UITheme.colors.text },
+    success = { color = UITheme.colors.success, textColor = UITheme.colors.text },
+    danger = { color = UITheme.colors.danger, textColor = UITheme.colors.text }
+  }
+  local preset = presets[config.preset or "default"]
+  local labelText = config.text or ""
+  local labelColor = config.textColor or preset.textColor
+
+  local children = config.children
+  if children == nil and labelText ~= "" then
+    local labelId = config.labelId
+    if labelId == nil and config.id then
+      labelId = config.id .. "_label"
+    end
+    children = {
+      {
+        tag = "Text",
+        attributes = {
+          id = labelId,
+          text = labelText,
+          fontSize = config.fontSize or UITheme.sizes.fontSize.md,
+          font = config.font or UITheme.fonts.primary,
+          fontStyle = config.fontStyle,
+          color = labelColor,
+          alignment = config.textAlignment or "MiddleCenter",
+          resizeTextForBestFit = config.resizeTextForBestFit ~= false,
+          resizeTextMinSize = config.resizeTextMinSize or 10
+        }
+      }
+    }
+  end
+  return {
+    tag = "Button",
+    attributes = {
+      id = config.id,
+      onClick = config.onClick,
+      color = config.color or preset.color,
+      preferredHeight = config.height or UITheme.sizes.buttonHeight.md,
+      preferredWidth = config.width,
+      tooltip = config.tooltip,
+      tooltipPosition = config.tooltipPosition,
+      image = config.image,
+      colors = config.colors
+    },
+    children = children
+  }
+end
+
+function UIComponents.vLayout(children, spacing, padding)
+  return {
+    tag = "VerticalLayout",
+    attributes = {
+      spacing = spacing or UITheme.sizes.spacing.sm,
+      padding = padding or UITheme.sizes.padding.md
+    },
+    children = children
+  }
+end
+
+function UIComponents.hLayout(children, spacing, height)
+  return {
+    tag = "HorizontalLayout",
+    attributes = {
+      spacing = spacing or UITheme.sizes.spacing.xs,
+      preferredHeight = height or UITheme.sizes.buttonHeight.md,
+      childAlignment = "MiddleCenter"
+    },
+    children = children
+  }
+end
+
+function UIComponents.text(config)
+  return {
+    tag = "Text",
+    attributes = {
+      id = config.id,
+      text = config.text or "",
+      fontSize = config.fontSize or UITheme.sizes.fontSize.md,
+      color = config.color or UITheme.colors.text,
+      alignment = config.alignment or "MiddleLeft",
+      preferredHeight = config.height or 26
+    }
+  }
+end
+
+function UIComponents.debugCard(title, headerColor, contentId, bgColor)
+  return UIComponents.panel({
+    color = bgColor or UITheme.colors.surface,
+    padding = UITheme.sizes.padding.lg,
+    children = {
+      UIComponents.vLayout({
+        UIComponents.text({ text = title, fontSize = UITheme.sizes.fontSize.xs, color = headerColor }),
+        UIComponents.text({ id = contentId, text = "(none)", fontSize = UITheme.sizes.fontSize.sm })
+      }, UITheme.sizes.spacing.xs)
+    }
+  })
+end
+
+function UIComponents.gridLayout(children, cellSize, spacing)
+  return {
+    tag = "GridLayout",
+    attributes = {
+      cellSize = cellSize or "100 100",
+      spacing = spacing or "10 10",
+      padding = "10 10 10 10"
+    },
+    children = children
+  }
+end
+
+return UIComponents

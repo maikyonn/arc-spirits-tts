@@ -1,0 +1,420 @@
+-------------------------------------------------------------------------------
+-- TravelerLib: Traveler card rotation and board placement
+-------------------------------------------------------------------------------
+
+local TravelerLib = {}
+
+local GameState = require("state/GameState")
+local SupabaseLib = require("api/SupabaseLib")
+local UtilLib = require("util/UtilLib")
+
+local TRAVELER_BAG_NAME = "Travelers"
+local TRAVELER_TAG = "Traveler"
+local TRAVELER_SPAWN_POS = Vector(-8.95, 1.19, -27.27)
+local TRAVELER_SPAWN_ROT = Vector(0, 210, 0)
+local TRAVELER_DISPLAY_SCALE = Vector(3, 1, 3)
+
+local function ensureTravelerScale(obj)
+  if not obj or obj.isDestroyed() then
+    return
+  end
+
+  pcall(function()
+    obj.setScale(TRAVELER_DISPLAY_SCALE)
+  end)
+end
+
+local function parseMetadata(notes)
+  if not notes or notes == "" then
+    return {}
+  end
+
+  local ok, metadata = pcall(function()
+    return JSON.decode(notes)
+  end)
+
+  if ok and metadata then
+    return metadata
+  end
+
+  return {}
+end
+
+local function getTravelerNameSet()
+  local names = {}
+  local data = SupabaseLib.getData()
+  for _, traveler in ipairs((data and data.travelers) or {}) do
+    if traveler and traveler.name then
+      names[traveler.name] = true
+    end
+  end
+  return names
+end
+
+local function getTravelerNameById(id)
+  if not id then
+    return nil
+  end
+
+  local data = SupabaseLib.getData()
+  for _, traveler in ipairs((data and data.travelers) or {}) do
+    if traveler and traveler.id == id then
+      return traveler.name
+    end
+  end
+
+  return nil
+end
+
+local function isTravelerDeck(obj)
+  if not obj or obj.isDestroyed() then
+    return false
+  end
+
+  if obj.type ~= "Deck" then
+    return false
+  end
+
+  local ok, cards = pcall(function() return obj.getObjects() end)
+  if not ok or not cards then
+    return false
+  end
+
+  for _, card in ipairs(cards) do
+    local meta = parseMetadata(card.gm_notes)
+    if meta.id then
+      if meta.trade_rows ~= nil
+        or meta.gain_rows ~= nil
+        or meta.traveler_subtext ~= nil
+        or meta.traveler_description ~= nil
+      then
+        return true
+      end
+    end
+  end
+
+  return false
+end
+
+local function isTravelerObject(obj)
+  if not obj or obj.isDestroyed() then
+    return false
+  end
+
+  if obj.type == "Deck" then
+    return isTravelerDeck(obj)
+  end
+
+  if obj.type ~= "Card" then
+    return false
+  end
+
+  local meta = parseMetadata(obj.getGMNotes())
+  if not meta.id then
+    return false
+  end
+
+  return meta.trade_rows ~= nil
+    or meta.gain_rows ~= nil
+    or meta.traveler_subtext ~= nil
+    or meta.traveler_description ~= nil
+end
+
+local function getTravelerBag()
+  return UtilLib.getObjectByName(TRAVELER_BAG_NAME)
+end
+
+local function isNotInContainer(obj)
+  local ok, container = pcall(function() return obj.getContainer() end)
+  if ok then
+    return container == nil
+  end
+  -- If getContainer doesn't exist, treat it as not in a container
+  return true
+end
+
+local findTravelerObjectNearSpawn
+
+local function getBoardTravelerMeta()
+  local near = findTravelerObjectNearSpawn()
+  if near then
+    if near.type == "Card" then
+      return parseMetadata(near.getGMNotes())
+    end
+    if near.type == "Deck" then
+      local okCards, cards = pcall(function() return near.getObjects() end)
+      if okCards and cards and cards[1] then
+        return parseMetadata(cards[1].gm_notes)
+      end
+    end
+  end
+
+  for _, obj in ipairs(getObjects()) do
+    if obj and not obj.isDestroyed() and obj.type == "Card" and isTravelerObject(obj) then
+      local container
+      local ok, result = pcall(function() return obj.getContainer() end)
+      if ok then
+        container = result
+      end
+      if not container then
+        return parseMetadata(obj.getGMNotes())
+      end
+    end
+  end
+
+  for _, obj in ipairs(getObjects()) do
+    if obj and not obj.isDestroyed() and obj.type == "Deck" and isTravelerDeck(obj) then
+      local container
+      local ok, result = pcall(function() return obj.getContainer() end)
+      if ok then
+        container = result
+      end
+      if not container then
+        local okCards, cards = pcall(function() return obj.getObjects() end)
+        if okCards and cards and cards[1] then
+          return parseMetadata(cards[1].gm_notes)
+        end
+      end
+    end
+  end
+
+  return nil
+end
+
+findTravelerObjectNearSpawn = function()
+  local travelerNames = getTravelerNameSet()
+  local nearest = nil
+  local nearestDist = nil
+  for _, obj in ipairs(getObjects()) do
+    if obj and not obj.isDestroyed() and (obj.type == "Card" or obj.type == "Deck") and isNotInContainer(obj) then
+      local dist = Vector.between(obj.getPosition(), TRAVELER_SPAWN_POS):magnitude()
+      local isCandidate = obj.hasTag(TRAVELER_TAG) or isTravelerObject(obj) or travelerNames[obj.getName()]
+      if isCandidate and dist <= 2 and (nearestDist == nil or dist < nearestDist) then
+        nearest = obj
+        nearestDist = dist
+      end
+    end
+  end
+  return nearest
+end
+
+local function getEntriesFromBag(bag)
+  local entries = {}
+  if not bag or bag.isDestroyed() then
+    return entries
+  end
+
+  local ok, contents = pcall(function() return bag.getObjects() end)
+  if not ok or not contents then
+    return entries
+  end
+
+  for _, desc in ipairs(contents) do
+    local meta = parseMetadata(desc.gm_notes)
+    table.insert(entries, {
+      id = meta.id,
+      order_num = meta.order_num,
+      copy_index = meta.copy_index or 0,
+      guid = desc.guid
+    })
+  end
+
+  return entries
+end
+
+local function getEntriesFromApi()
+  local entries = {}
+  local data = SupabaseLib.getData()
+  for _, traveler in ipairs(data.travelers or {}) do
+    table.insert(entries, {
+      id = traveler.id,
+      order_num = traveler.order_num,
+      copy_index = traveler.copy_index or 0
+    })
+  end
+  return entries
+end
+
+local function dedupeEntries(entries)
+  local seen = {}
+  local result = {}
+  for _, entry in ipairs(entries) do
+    if entry.id then
+      local key = tostring(entry.id) .. ":" .. tostring(entry.copy_index or 0)
+      if not seen[key] then
+        seen[key] = true
+        table.insert(result, entry)
+      end
+    end
+  end
+  return result
+end
+
+local function getTravelerEntries()
+  local entries = getEntriesFromApi()
+  if #entries == 0 then
+    entries = getEntriesFromBag(getTravelerBag())
+  end
+
+  entries = dedupeEntries(entries)
+
+  table.sort(entries, function(a, b)
+    local ao = a.order_num or 999
+    local bo = b.order_num or 999
+    if ao == bo then
+      return (a.copy_index or 0) < (b.copy_index or 0)
+    end
+    return ao < bo
+  end)
+
+  return entries
+end
+
+local function findEntryIndex(entries, id, copyIndex)
+  for i, entry in ipairs(entries) do
+    if entry.id == id and (copyIndex == nil or entry.copy_index == copyIndex) then
+      return i
+    end
+  end
+  return nil
+end
+
+local function clearBoardTravelers()
+  -- If we previously spawned a traveler object, try to destroy it directly first.
+  if GameState.travelerActiveGuid then
+    local obj = getObjectFromGUID(GameState.travelerActiveGuid)
+    if obj and not obj.isDestroyed() then
+      obj.destruct()
+    end
+    GameState.travelerActiveGuid = nil
+  end
+
+  local travelerNames = getTravelerNameSet()
+  for _, obj in ipairs(getObjects()) do
+    repeat
+      if not obj or obj.isDestroyed() then break end
+      if not isNotInContainer(obj) then break end
+
+      local isCandidate = obj.hasTag(TRAVELER_TAG) or isTravelerObject(obj) or travelerNames[obj.getName()]
+      if not isCandidate then
+        -- Last resort: clear anything card/deck sitting on the spawn position
+        if obj.type == "Card" or obj.type == "Deck" then
+          local dist = Vector.between(obj.getPosition(), TRAVELER_SPAWN_POS):magnitude()
+          if dist <= 1.5 then
+            isCandidate = true
+          end
+        end
+      end
+
+      if isCandidate then
+        obj.destruct()
+      end
+    until true
+  end
+
+  -- Ensure the spawn area is actually clear (handles deck/stack merges and missing metadata).
+  for _, obj in ipairs(getObjects()) do
+    if obj and not obj.isDestroyed() and (obj.type == "Card" or obj.type == "Deck") and isNotInContainer(obj) then
+      local dist = Vector.between(obj.getPosition(), TRAVELER_SPAWN_POS):magnitude()
+      if dist <= 2 then
+        obj.destruct()
+      end
+    end
+  end
+end
+
+local function spawnTravelerFromTemplate(travelerId, copyIndex)
+  local templates = SupabaseLib.generateTravelerData()
+  for _, template in ipairs(templates) do
+    local meta = parseMetadata(template.GMNotes or "")
+    if meta.id == travelerId and (copyIndex == nil or (meta.copy_index or 0) == copyIndex) then
+      template.Transform.posX = TRAVELER_SPAWN_POS.x
+      template.Transform.posY = TRAVELER_SPAWN_POS.y
+      template.Transform.posZ = TRAVELER_SPAWN_POS.z
+      template.Transform.rotX = TRAVELER_SPAWN_ROT.x
+      template.Transform.rotY = TRAVELER_SPAWN_ROT.y
+      template.Transform.rotZ = TRAVELER_SPAWN_ROT.z
+      local spawned = spawnObjectData({ data = template })
+      if spawned then
+        spawned.addTag(TRAVELER_TAG)
+        ensureTravelerScale(spawned)
+        GameState.travelerActiveGuid = spawned.getGUID()
+      end
+      return true
+    end
+  end
+  return false
+end
+
+local function spawnTravelerFromEntry(entry)
+  return spawnTravelerFromTemplate(entry.id, entry.copy_index)
+end
+
+function TravelerLib.spawnTravelerAtIndex(index)
+  local entries = getTravelerEntries()
+  if #entries == 0 then
+    GameState.debugPrint("[TravelerLib] No traveler entries available.")
+    return
+  end
+
+  if not index or index < 1 or index > #entries then
+    index = 1
+  end
+
+  local entry = entries[index]
+  if not entry or not entry.id then
+    GameState.debugPrint("[TravelerLib] Invalid traveler entry at index " .. tostring(index))
+    return
+  end
+
+  local travelerName = getTravelerNameById(entry.id) or "Unknown"
+  GameState.debugPrint(string.format("[TravelerLib] Spawning traveler %d/%d: %s", index, #entries, travelerName))
+
+  GameState.travelerRotationIndex = index
+  GameState.travelerActiveId = entry.id
+
+  clearBoardTravelers()
+  Wait.frames(function()
+    spawnTravelerFromEntry(entry)
+  end, 10)
+end
+
+function TravelerLib.advanceTraveler()
+  local entries = getTravelerEntries()
+  if #entries == 0 then
+    return
+  end
+
+  local nextIndex = (GameState.travelerRotationIndex or 0) + 1
+  if nextIndex > #entries then
+    nextIndex = 1
+  end
+
+  TravelerLib.spawnTravelerAtIndex(nextIndex)
+end
+
+function TravelerLib.ensureTravelerOnBoard()
+  local entries = getTravelerEntries()
+  if #entries == 0 then
+    return
+  end
+
+  local boardMeta = getBoardTravelerMeta()
+  if boardMeta and boardMeta.id then
+    local index = findEntryIndex(entries, boardMeta.id, boardMeta.copy_index)
+    if index then
+      GameState.travelerRotationIndex = index
+      GameState.travelerActiveId = boardMeta.id
+      local obj = findTravelerObjectNearSpawn()
+      if obj then
+        ensureTravelerScale(obj)
+        GameState.travelerActiveGuid = obj.getGUID()
+      end
+      return
+    end
+  end
+
+  TravelerLib.spawnTravelerAtIndex(GameState.travelerRotationIndex or 1)
+end
+
+return TravelerLib

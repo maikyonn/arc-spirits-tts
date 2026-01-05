@@ -1,0 +1,58 @@
+-------------------------------------------------------------------------------
+-- MARK: MarketLib
+-- Spirit market logic
+-------------------------------------------------------------------------------
+
+local MarketLib = {}
+
+-- Dependencies
+local GameState = require("state/GameState")
+local SearchLib = require("util/SearchLib")
+
+-------------------------------------------------------------------------------
+-- MARK: Helper Functions
+-------------------------------------------------------------------------------
+
+-- Helper function to get object by name
+local function getObjectByName(name)
+  for _, obj in ipairs(getObjects()) do
+    if obj.getName() == name then
+      return obj
+    end
+  end
+  return nil
+end
+
+-------------------------------------------------------------------------------
+-- MARK: Market Functions
+-------------------------------------------------------------------------------
+
+-- Refills the market of Spirit World spirits, skipping full spots
+function MarketLib.refillSpirits(_, playerColor)
+  local bag = getObjectByName("Spirit World Bag")
+  if not bag then
+    printToAll("Spirit World Bag not found!", "Red")
+    return
+  end
+
+  local neededRefill = false
+  local shuffled = false
+
+  for i, pos in ipairs(GameState.MARKET_SPIRIT_POSITIONS) do
+    local searchResult = SearchLib.atPosition(pos, "isHexSpirit")
+    if #searchResult == 0 then
+      if not shuffled then
+        bag.shuffle()
+        shuffled = true
+      end
+      bag.takeObject({ position = pos, rotation = Vector(0, (i - 1) * 60, 0) })
+      neededRefill = true
+    end
+  end
+
+  if not neededRefill and playerColor then
+    broadcastToColor("There are already 6 spirits placed.", playerColor, "Orange")
+  end
+end
+
+return MarketLib

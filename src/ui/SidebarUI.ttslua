@@ -1,0 +1,281 @@
+-------------------------------------------------------------------------------
+-- SidebarUI: Player Sidebar Panel
+-- Displays class reference list and quick action tools
+-------------------------------------------------------------------------------
+
+local UITheme = require("ui/UITheme")
+local UIComponents = require("ui/UIComponents")
+local GameState = require("state/GameState")
+
+local SidebarUI = {}
+
+-------------------------------------------------------------------------------
+-- MARK: Constants
+-------------------------------------------------------------------------------
+
+local SIDEBAR_WIDTH = 240
+local SIDEBAR_HEIGHT = 560
+local SIDEBAR_OFFSET = "-5 10"
+
+-------------------------------------------------------------------------------
+-- MARK: Class Reference Section Builder
+-------------------------------------------------------------------------------
+
+--- Helper to create a class button element
+---@param playerColor string The player color
+---@param className string The class name
+---@param classData table The class data from API
+---@return table The button XML element
+local function createClassButton(playerColor, className, classData)
+  local iconUrl = classData and classData.icon_url or ""
+  return {
+    tag = "Button",
+    attributes = {
+      id = playerColor .. "_class_" .. className,
+      onClick = "xml_showClassBreakpoints",
+      color = UITheme.colors.surface,
+      preferredHeight = 26,
+      padding = "2 2 2 2",
+      active = true
+    },
+    children = {
+      {
+        tag = "HorizontalLayout",
+        attributes = {
+          spacing = 4,
+          childAlignment = "MiddleLeft"
+        },
+        children = {
+          {
+            tag = "Image",
+            attributes = {
+              image = iconUrl,
+              preserveAspect = true,
+              preferredWidth = 20,
+              preferredHeight = 20
+            }
+          },
+          {
+            tag = "Text",
+            attributes = {
+              text = className,
+              color = UITheme.colors.text,
+              fontSize = UITheme.sizes.fontSize.sm,
+              alignment = "MiddleLeft",
+              flexibleWidth = 1
+            }
+          }
+        }
+      }
+    }
+  }
+end
+
+--- Build the class reference section panel showing ALL classes as buttons
+--- Classes are sorted by position, special classes are in a separate expandable section
+---@param playerColor string The player color
+---@return table The class reference section panel XML
+function SidebarUI.buildClassReferenceSection(playerColor)
+  -- Separate regular and special classes, sorted by position
+  local regularClasses = {}
+  local specialClasses = {}
+
+  for className, classData in pairs(GameState.classesByName) do
+    local entry = { name = className, data = classData, position = classData.position or 999 }
+    if classData.special and classData.special ~= "" then
+      table.insert(specialClasses, entry)
+    else
+      table.insert(regularClasses, entry)
+    end
+  end
+
+  -- Sort by position
+  table.sort(regularClasses, function(a, b) return a.position < b.position end)
+  table.sort(specialClasses, function(a, b) return a.position < b.position end)
+
+  -- Build children array: header + regular class buttons
+  local children = {
+    {
+      tag = "Text",
+      attributes = {
+        text = "CLASSES",
+        fontSize = UITheme.sizes.fontSize.lg,
+        fontStyle = "Bold",
+        color = playerColor,
+        alignment = "MiddleCenter",
+        preferredHeight = 24
+      }
+    }
+  }
+
+  -- Add regular class buttons
+  for _, entry in ipairs(regularClasses) do
+    table.insert(children, createClassButton(playerColor, entry.name, entry.data))
+  end
+
+  -- Add Special Classes expandable section if there are special classes
+  if #specialClasses > 0 then
+    -- Special Classes toggle button
+    table.insert(children, {
+      tag = "Button",
+      attributes = {
+        id = playerColor .. "_special_classes_toggle",
+        onClick = "xml_toggleSpecialClasses",
+        color = UITheme.colors.primary,
+        preferredHeight = 26,
+        padding = "2 2 2 2"
+      },
+      children = {
+        {
+          tag = "Text",
+          attributes = {
+            id = playerColor .. "_special_classes_label",
+            text = "Special Classes ▼",
+            color = UITheme.colors.text,
+            fontSize = UITheme.sizes.fontSize.sm,
+            alignment = "MiddleCenter"
+          }
+        }
+      }
+    })
+
+    -- Special classes container (hidden by default)
+    local specialChildren = {}
+    for _, entry in ipairs(specialClasses) do
+      table.insert(specialChildren, createClassButton(playerColor, entry.name, entry.data))
+    end
+
+    table.insert(children, {
+      tag = "Panel",
+      attributes = {
+        id = playerColor .. "_special_classes_panel",
+        active = false,
+        color = UITheme.colors.background,
+        padding = "4 4 4 4"
+      },
+      children = {
+        {
+          tag = "VerticalLayout",
+          attributes = { spacing = 4 },
+          children = specialChildren
+        }
+      }
+    })
+  end
+
+  return {
+    tag = "Panel",
+    attributes = {
+      color = UITheme.colors.surface,
+      padding = "6 6 6 6"
+    },
+    children = {
+      {
+        tag = "VerticalLayout",
+        attributes = { spacing = 4 },
+        children = children
+      }
+    }
+  }
+end
+
+-------------------------------------------------------------------------------
+-- MARK: Tools Section Builder
+-------------------------------------------------------------------------------
+
+--- Build the dice spawner button section (above classes)
+---@param playerColor string The player color
+---@return table The dice spawner button panel XML
+function SidebarUI.buildDiceSpawnerSection(playerColor)
+  return {
+    tag = "Panel",
+    attributes = {
+      color = UITheme.colors.surface,
+      padding = "6 6 6 6"
+    },
+    children = {
+      UIComponents.button({
+        id = playerColor .. "_btn_dice",
+        onClick = "xml_showDiceSpawner",
+        text = "Spawn Dice",
+        fontSize = UITheme.sizes.fontSize.md,
+        height = 36,
+        color = UITheme.colors.primary
+      })
+    }
+  }
+end
+
+--- Build the tools section with Debug button
+---@param playerColor string The player color
+---@return table The tools section panel XML
+function SidebarUI.buildToolsSection(playerColor)
+  return {
+    tag = "Panel",
+    attributes = {
+      color = UITheme.colors.surface,
+      padding = "6 6 6 6"
+    },
+    children = {
+      {
+        tag = "VerticalLayout",
+        attributes = { spacing = 4 },
+        children = {
+          -- Debug button
+          UIComponents.button({
+            id = playerColor .. "_btn_debug",
+            onClick = "xml_showDebugPanel",
+            text = "Debug Info",
+            fontSize = UITheme.sizes.fontSize.md,
+            height = 32,
+            color = UITheme.colors.surface
+          })
+        }
+      }
+    }
+  }
+end
+
+-------------------------------------------------------------------------------
+-- MARK: Main Sidebar Builder
+-------------------------------------------------------------------------------
+
+--- Build the complete sidebar panel for a player
+---@param playerColor string The player color
+---@return table The sidebar panel XML
+function SidebarUI.build(playerColor)
+  return {
+    tag = "Panel",
+    attributes = {
+      id = playerColor .. "_sidebar",
+      width = SIDEBAR_WIDTH,
+      height = SIDEBAR_HEIGHT,
+      color = UITheme.colors.background,
+      rectAlignment = "LowerRight",
+      offsetXY = SIDEBAR_OFFSET,
+      visibility = playerColor,
+      active = true,
+      outline = playerColor,
+      outlineSize = "2"
+    },
+    children = {
+      {
+        tag = "VerticalLayout",
+        attributes = {
+          spacing = 6,
+          padding = "8 8 8 8"
+        },
+        children = {
+          -- Dice Spawner Section (above classes)
+          SidebarUI.buildDiceSpawnerSection(playerColor),
+          -- Class Reference Section
+          SidebarUI.buildClassReferenceSection(playerColor),
+          -- Tools Section
+          SidebarUI.buildToolsSection(playerColor)
+        }
+      }
+    }
+  }
+end
+
+return SidebarUI

@@ -1,0 +1,417 @@
+-------------------------------------------------------------------------------
+-- GlobalUI: Global UI elements builder
+-- Generates XML for realm navigator, top buttons, and global announcements
+-------------------------------------------------------------------------------
+
+local UITheme = require("ui/UITheme")
+local UIComponents = require("ui/UIComponents")
+local GameState = require("state/GameState")
+local PlayerMatLib = require("game/PlayerMatLib")
+
+local GlobalUI = {}
+
+-------------------------------------------------------------------------------
+-- Constants
+-------------------------------------------------------------------------------
+
+local NAVIGATOR_ROW_HEIGHT = 28
+local NAVIGATOR_BASE_HEIGHT = 70
+
+-- Navigation selector positioning
+local NAV_SELECTOR_OFFSET_X = -255
+local NAV_SELECTOR_HEIGHT = 400
+local NAV_SELECTOR_MARGIN_Y = 30
+local NAV_SELECTOR_OFFSET_Y = 730 - NAV_SELECTOR_HEIGHT - NAV_SELECTOR_MARGIN_Y
+
+-------------------------------------------------------------------------------
+-- Realm Navigator
+-------------------------------------------------------------------------------
+
+--- Build the realm navigator panel (player status tracker)
+--- Shows player colors and their current status with navigate button
+---@return table XML table for the realm navigator panel
+function GlobalUI.buildRealmNavigator()
+  local navChildren = {
+    -- Header text
+    UIComponents.text({
+      text = "Player Status",
+      fontSize = UITheme.sizes.fontSize.md,
+      color = UITheme.colors.muted,
+      alignment = "MiddleCenter",
+      height = 24
+    })
+  }
+
+  -- Add player status panels for each supported player color
+  for _, playerColor in ipairs(UITheme.validPlayerColors) do
+    local blood = PlayerMatLib.getBlood(playerColor)
+    local vp = PlayerMatLib.getVictoryPoints(playerColor)
+
+    local playerPanel = {
+      tag = "Panel",
+      attributes = {
+        id = playerColor .. "_navTracker_panel",
+        active = false,
+        color = "Red",  -- Will be updated dynamically
+        preferredHeight = NAVIGATOR_ROW_HEIGHT
+      },
+      children = {
+        {
+          tag = "HorizontalLayout",
+          attributes = {
+            spacing = 4,
+            childAlignment = "MiddleCenter",
+            padding = "4 4 4 4"
+          },
+          children = {
+            -- Player name (left side, flexible width)
+            {
+              tag = "Text",
+              attributes = {
+                id = playerColor .. "_navTracker_text",
+                text = playerColor,
+                fontSize = UITheme.sizes.fontSize.md,
+                color = UITheme.colors.text,
+                alignment = "MiddleLeft",
+                flexibleWidth = 1
+              }
+            },
+            -- Resources container (right side, compact)
+            {
+              tag = "HorizontalLayout",
+              attributes = {
+                spacing = 2,
+                childAlignment = "MiddleRight"
+              },
+              children = {
+                -- Blood icon and count
+                {
+                  tag = "Image",
+                  attributes = {
+                    image = GameState.resourceIcons.blood or "",
+                    preferredWidth = 14,
+                    preferredHeight = 14,
+                    preserveAspect = "true"
+                  }
+                },
+                {
+                  tag = "Text",
+                  attributes = {
+                    id = playerColor .. "_navTracker_blood",
+                    text = tostring(blood),
+                    fontSize = UITheme.sizes.fontSize.xs,
+                    fontStyle = "Bold",
+                    color = "Black",
+                    alignment = "MiddleCenter",
+                    preferredWidth = 14
+                  }
+                },
+                -- VP icon and count
+                {
+                  tag = "Image",
+                  attributes = {
+                    image = GameState.resourceIcons.victoryPoint or "",
+                    preferredWidth = 14,
+                    preferredHeight = 14,
+                    preserveAspect = "true"
+                  }
+                },
+                {
+                  tag = "Text",
+                  attributes = {
+                    id = playerColor .. "_navTracker_vp",
+                    text = tostring(vp),
+                    fontSize = UITheme.sizes.fontSize.xs,
+                    fontStyle = "Bold",
+                    color = "Black",
+                    alignment = "MiddleCenter",
+                    preferredWidth = 14
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    table.insert(navChildren, playerPanel)
+  end
+
+  -- Navigate button at bottom
+  table.insert(navChildren, UIComponents.button({
+    onClick = "xml_navigateRealm",
+    text = "Choose Destination",
+    preset = "default",
+    fontSize = UITheme.sizes.fontSize.lg,
+    height = UITheme.sizes.buttonHeight.md
+  }))
+
+  -- Calculate height based on number of players (will resize dynamically)
+  local initialHeight = NAVIGATOR_BASE_HEIGHT + NAVIGATOR_ROW_HEIGHT
+
+  return {
+    tag = "Panel",
+    attributes = {
+      id = "vl_RealmNavigator",
+      width = 240,
+      height = initialHeight,
+      color = UITheme.colors.background,
+      rectAlignment = "LowerRight",
+      offsetXY = "-5 730",
+      outline = UITheme.colors.muted,
+      outlineSize = "1",
+      active = true
+    },
+    children = {
+      UIComponents.vLayout(navChildren, UITheme.sizes.spacing.xs, UITheme.sizes.padding.sm)
+    }
+  }
+end
+
+-------------------------------------------------------------------------------
+-- Top Buttons Panel
+-------------------------------------------------------------------------------
+
+--- Build the top buttons panel (Draw/Summon + Discard)
+---@return table XML table for the top buttons panel
+function GlobalUI.buildTopButtons()
+  return {
+    tag = "Panel",
+    attributes = {
+      id = "top_buttons_panel",
+      width = 240,
+      height = 130,
+      color = UITheme.colors.background,
+      rectAlignment = "LowerRight",
+      offsetXY = "-5 580",
+      outline = UITheme.colors.muted,
+      outlineSize = "1"
+    },
+    children = {
+      UIComponents.vLayout({
+        UIComponents.button({
+          id = "btn_draw2pick1",
+          onClick = "xml_draw2Pick1",
+          text = "Draw 4 Spirits, Summon 2 (Spirit World)",
+          preset = "default",
+          fontSize = UITheme.sizes.fontSize.md,
+          height = UITheme.sizes.buttonHeight.md
+        }),
+        UIComponents.button({
+          id = "btn_draw4pick1_sealed",
+          onClick = "xml_draw4Pick1Sealed",
+          text = "Draw 3 Spirits, Summon 1 (Abyss Fallen)",
+          preset = "default",
+          fontSize = UITheme.sizes.fontSize.sm,
+          height = UITheme.sizes.buttonHeight.md
+        }),
+        UIComponents.button({
+          id = "btn_return_spirits",
+          onClick = "xml_returnAllSpirits",
+          text = "Discard Hand (Spirit World)",
+          preset = "default",
+          fontSize = UITheme.sizes.fontSize.md,
+          height = UITheme.sizes.buttonHeight.md
+        })
+      }, UITheme.sizes.spacing.xs, UITheme.sizes.padding.sm)
+    }
+  }
+end
+
+-------------------------------------------------------------------------------
+-- Global Announcement Panel
+-------------------------------------------------------------------------------
+
+--- Build the global announcement panel (centered, large text, hidden by default)
+---@return table XML table for the announcement panel
+function GlobalUI.buildAnnouncement()
+  return {
+    tag = "Panel",
+    attributes = {
+      id = "global_announcement",
+      active = false,
+      width = 1200,
+      height = 300,
+      rectAlignment = "UpperCenter",
+      offsetXY = "0 -150",
+      color = "rgba(0,0,0,0)"  -- Transparent background
+    },
+    children = {
+      {
+        tag = "VerticalLayout",
+        attributes = {
+          childAlignment = "MiddleCenter",
+          spacing = 10
+        },
+        children = {
+          -- Main announcement text
+          {
+            tag = "Text",
+            attributes = {
+              id = "global_announcement_text",
+              text = "",
+              fontSize = UITheme.sizes.fontSize.huge,
+              fontStyle = "Bold",
+              color = UITheme.colors.primary,
+              alignment = "MiddleCenter",
+              outline = "#000000",
+              outlineSize = "3"
+            }
+          },
+          -- Subtitle text
+          {
+            tag = "Text",
+            attributes = {
+              id = "global_announcement_subtext",
+              text = "",
+              fontSize = UITheme.sizes.fontSize.xxl,
+              fontStyle = "Bold",
+              color = UITheme.colors.text,
+              alignment = "MiddleCenter",
+              outline = "#000000",
+              outlineSize = "2"
+            }
+          }
+        }
+      }
+    }
+  }
+end
+
+-------------------------------------------------------------------------------
+-- Navigation Selector Panel (per-player popup)
+-------------------------------------------------------------------------------
+
+--- Build the navigation selector panel for a specific player
+--- This replaces showOptionsDialog with XML UI for multiplayer support
+---@param playerColor string The player color
+---@return table XML table for the navigation selector panel
+function GlobalUI.buildNavigationSelector(playerColor)
+  -- Build children array for vertical layout
+  local layoutChildren = {
+    -- Header
+    {
+      tag = "Text",
+      attributes = {
+        text = "Choose Destination",
+        fontSize = UITheme.sizes.fontSize.lg,
+        fontStyle = "Bold",
+        color = UITheme.colors.text,
+        alignment = "MiddleCenter",
+        preferredHeight = 30
+      }
+    }
+  }
+
+  -- Create a button for each navigation option
+  for i, option in ipairs(GameState.NAVIGATE_OPTIONS) do
+    table.insert(layoutChildren, UIComponents.button({
+      id = playerColor .. "_nav_option_" .. i,
+      onClick = "xml_selectDestination",
+      text = option,
+      preset = "primary",
+      fontSize = UITheme.sizes.fontSize.md,
+      height = 32
+    }))
+  end
+
+  -- Add cancel button
+  table.insert(layoutChildren, UIComponents.button({
+    id = playerColor .. "_nav_cancel",
+    onClick = "xml_cancelNavigation",
+    text = "Cancel",
+    preset = "danger",
+    fontSize = UITheme.sizes.fontSize.md,
+    height = 32,
+    colors = "#aa3333|#cc4444|#882222|#ffffff"
+  }))
+
+  return {
+    tag = "Panel",
+    attributes = {
+      id = playerColor .. "_nav_selector",
+      active = false,
+      visibility = playerColor,  -- Only visible to this player
+      width = 220,
+      height = NAV_SELECTOR_HEIGHT,
+      color = UITheme.colors.background,
+      rectAlignment = "LowerRight",
+      offsetXY = NAV_SELECTOR_OFFSET_X .. " " .. NAV_SELECTOR_OFFSET_Y,
+      outline = UITheme.colors.primary,
+      outlineSize = "2"
+    },
+    children = {
+      {
+        tag = "VerticalLayout",
+        attributes = {
+          spacing = UITheme.sizes.spacing.xs,
+          padding = UITheme.sizes.padding.md,
+          childAlignment = "UpperCenter"
+        },
+        children = layoutChildren
+      }
+    }
+  }
+end
+
+-------------------------------------------------------------------------------
+-- Build All Global Elements
+-------------------------------------------------------------------------------
+
+--- Build all global UI elements at once
+---@return table List of XML tables for all global elements
+function GlobalUI.buildAll()
+  local elements = {
+    GlobalUI.buildRealmNavigator(),
+    GlobalUI.buildTopButtons(),
+    GlobalUI.buildAnnouncement()
+  }
+
+  -- Add per-player navigation selectors
+  for _, playerColor in ipairs(UITheme.validPlayerColors) do
+    table.insert(elements, GlobalUI.buildNavigationSelector(playerColor))
+  end
+
+  return elements
+end
+
+-------------------------------------------------------------------------------
+-- Helper Functions for Runtime Updates
+-------------------------------------------------------------------------------
+
+--- Get the navigator row height constant
+---@return number The height of each player row in the navigator
+function GlobalUI.getNavigatorRowHeight()
+  return NAVIGATOR_ROW_HEIGHT
+end
+
+--- Get the navigator base height constant
+---@return number The base height of the navigator panel
+function GlobalUI.getNavigatorBaseHeight()
+  return NAVIGATOR_BASE_HEIGHT
+end
+
+--- Calculate total navigator height based on active player count
+---@param activePlayerCount number Number of active players
+---@return number Total height for the navigator panel
+function GlobalUI.calculateNavigatorHeight(activePlayerCount)
+  return NAVIGATOR_BASE_HEIGHT + (NAVIGATOR_ROW_HEIGHT * activePlayerCount)
+end
+
+--- Update blood and VP display in navigator for a player
+---@param playerColor string The player color
+function GlobalUI.updateNavigatorResources(playerColor)
+  local blood = PlayerMatLib.getBlood(playerColor)
+  local vp = PlayerMatLib.getVictoryPoints(playerColor)
+  UI.setAttribute(playerColor .. "_navTracker_blood", "text", tostring(blood))
+  UI.setAttribute(playerColor .. "_navTracker_vp", "text", tostring(vp))
+end
+
+--- Update blood and VP display in navigator for all players
+function GlobalUI.updateAllNavigatorResources()
+  for _, playerColor in ipairs(UITheme.validPlayerColors) do
+    GlobalUI.updateNavigatorResources(playerColor)
+  end
+end
+
+return GlobalUI

@@ -1,0 +1,49 @@
+-------------------------------------------------------------------------------
+-- DiceLib: Class breakpoint information
+-- Provides dice data for class breakpoints display only
+-- All automatic dice spawning and rolling has been removed
+-------------------------------------------------------------------------------
+
+local GameState = require("state/GameState")
+
+local DiceLib = {}
+
+-------------------------------------------------------------------------------
+-- Public API Functions
+-------------------------------------------------------------------------------
+
+--- Gets dice effects for a class at a given trait count
+--- Returns the effects array from the highest breakpoint where count <= traitCount
+--- Used for displaying class breakpoints in the UI
+---@param className string The class name
+---@param traitCount number The trait count
+---@return table effects array or empty table
+function DiceLib.getDiceForClass(className, traitCount)
+  local classData = GameState.classesByName[className]
+  if not classData or not classData.effect_schema then
+    return {}
+  end
+
+  -- Find the highest breakpoint where count <= traitCount
+  local bestBreakpoint = nil
+  for _, breakpoint in ipairs(classData.effect_schema) do
+    if breakpoint.count <= traitCount then
+      if not bestBreakpoint or breakpoint.count > bestBreakpoint.count then
+        bestBreakpoint = breakpoint
+      end
+    end
+  end
+
+  return bestBreakpoint and bestBreakpoint.effects or {}
+end
+
+--- Gets dice name by ID from the API data
+--- Used for displaying breakpoint effects
+---@param diceId string The dice ID from API
+---@return string|nil diceName The dice name or nil if not found
+function DiceLib.getDiceNameById(diceId)
+  local diceData = GameState.diceById[diceId]
+  return diceData and diceData.name or nil
+end
+
+return DiceLib

@@ -1,0 +1,54 @@
+{
+  "AltLookAngle": {
+    "x": 0,
+    "y": 0,
+    "z": 0
+  },
+  "Autoraise": true,
+  "ColorDiffuse": {
+    "b": 1,
+    "g": 1,
+    "r": 1
+  },
+  "Description": "",
+  "DragSelectable": true,
+  "GMNotes": "",
+  "GUID": "8e7d0a",
+  "Grid": true,
+  "GridProjection": false,
+  "Hands": false,
+  "HideWhenFaceDown": false,
+  "IgnoreFoW": false,
+  "LayoutGroupSortIndex": 0,
+  "Locked": true,
+  "LuaScript": "",
+  "LuaScriptState": "",
+  "MeasureMovement": false,
+  "Name": "3DText",
+  "Nickname": "",
+  "Snap": true,
+  "Sticky": true,
+  "Text": {
+    "Text": "Arc Spirits",
+    "colorstate": {
+      "b": 0.709059358,
+      "g": 0,
+      "r": 0.6339826
+    },
+    "fontSize": 256
+  },
+  "Tooltip": true,
+  "Transform": {
+    "posX": 0,
+    "posY": 1,
+    "posZ": 65,
+    "rotX": 90,
+    "rotY": 0,
+    "rotZ": 0,
+    "scaleX": 2.2,
+    "scaleY": 2.2,
+    "scaleZ": 2.2
+  },
+  "Value": 0,
+  "XmlUI": ""
+}

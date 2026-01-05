@@ -1,0 +1,1087 @@
+-------------------------------------------------------------------------------
+-- UILib: State-Driven UI Orchestrator for Arc Spirits TTS
+-- Coordinates UI modules and generates XML based on game state (lobby vs started)
+-------------------------------------------------------------------------------
+
+local GameState = require("state/GameState")
+local PlayerMatLib = require("game/PlayerMatLib")
+local ObjectTemplateLib = require("util/ObjectTemplateLib")
+local UITheme = require("ui/UITheme")
+
+-------------------------------------------------------------------------------
+-- MARK: UI Module Imports
+-------------------------------------------------------------------------------
+
+local LobbyUI = require("ui/LobbyUI")
+local SidebarUI = require("ui/SidebarUI")
+local DebugPanelUI = require("ui/DebugPanelUI")
+local DiceSpawnerUI = require("ui/DiceSpawnerUI")
+local RuneSelectorUI = require("ui/RuneSelectorUI")
+local ResourceTrackerUI = require("ui/ResourceTrackerUI")
+local GlobalUI = require("ui/GlobalUI")
+
+local UILib = {}
+
+-------------------------------------------------------------------------------
+-- MARK: Constants and Data
+-------------------------------------------------------------------------------
+
+-- Tooltip data (could be moved to GameState if needed)
+local TOOLTIP_DATA = {
+  ["Cultivate Spirits"] =
+  "If you have 3 of the same origin, gain 1 rune of that origin. If you have 4 of that origin, gain 1 rune and 1 origin destiny.",
+  ["Absorb Spirits"] =
+  "Remove a spirit and gain 1-2 barriers depending on your player status. You may remove as many as you want.",
+  ["Summon Mythic"] =
+  "Pay the rune cost, then take 1 Mythic (special borders) from the Spirit Row and place it on your Spirit Tableau. You may replace a spirit if you have no space.",
+  ["Summon Legendary"] =
+  "Pay the rune cost, then take 1 Yellow sprit from the Spirit Row and place it on your Spirit Tableau. You may replace a spirit if you have no space.",
+  ["Summon Epic"] =
+  "Take 1 Purple sprit from the Spirit Row and place it on your Spirit Tableau. You may replace a spirit if you have no space."
+}
+
+
+-- Valid player colors for the game
+-- Keep this in sync with UITheme.validPlayerColors and GameState.PLAYERMAT_POSITIONS
+local PLAYER_COLORS = UITheme.validPlayerColors
+
+ 
+
+-------------------------------------------------------------------------------
+-- MARK: XML Serialization Helper
+-------------------------------------------------------------------------------
+
+--- Convert a Lua table structure to TTS XML string format
+--- Recursively processes nested tables with tag, attributes, and children
+---@param elements table Array of XML element tables
+---@return string The XML string representation
+function UILib.toXmlString(elements)
+  local function escapeXml(str)
+    if type(str) ~= "string" then return tostring(str) end
+    return str:gsub("&", "&amp;")
+              :gsub("<", "&lt;")
+              :gsub(">", "&gt;")
+              :gsub('"', "&quot;")
+              :gsub("'", "&apos;")
+  end
+
+  local function elementToXml(element)
+    if not element or not element.tag then return "" end
+
+    local xml = "<" .. element.tag
+
+    -- Add attributes
+    if element.attributes then
+      for key, value in pairs(element.attributes) do
+        xml = xml .. ' ' .. key .. '="' .. escapeXml(value) .. '"'
+      end
+    end
+
+    -- Check for children
+    if element.children and #element.children > 0 then
+      xml = xml .. ">"
+      for _, child in ipairs(element.children) do
+        xml = xml .. elementToXml(child)
+      end
+      xml = xml .. "</" .. element.tag .. ">"
+    else
+      xml = xml .. "/>"
+    end
+
+    return xml
+  end
+
+  local result = ""
+  for _, element in ipairs(elements) do
+    result = result .. elementToXml(element)
+  end
+  return result
+end
+
+
+-------------------------------------------------------------------------------
+-- MARK: Playermat Rune Slot UI (attached to mat object)
+-------------------------------------------------------------------------------
+
+-- Rune slot positions on playermat (local coordinates) - used for both spawning and UI
+-- These positions form a diamond pattern on the mat
+UILib.RUNE_SLOT_POSITIONS = {
+  { local_pos = Vector(0.176, 0.1, -0.034),   ui_offset = "105 -20" },   -- Slot 1
+  { local_pos = Vector(0.013, 0.1, -0.279),   ui_offset = "8 -168" },    -- Slot 2
+  { local_pos = Vector(-0.141, 0.1, -0.515),  ui_offset = "-85 -310" },  -- Slot 3
+  { local_pos = Vector(-0.284, 0.1, -0.764),  ui_offset = "-182 -168" }  -- Slot 4
+}
+
+--- Create and apply rune slot buttons to a playermat object using native TTS buttons
+--- This adds small + buttons at each rune snap point position on the mat
+---@param matObject object The playermat TTS object
+---@param playerColor string The player color who owns this mat
+function UILib.setupRuneSlotsOnMat(matObject, playerColor)
+  if not matObject then
+    GameState.debugPrint("[UILib] setupRuneSlotsOnMat: matObject is nil!")
+    return
+  end
+
+  -- Clear any existing buttons first
+  matObject.clearButtons()
+
+  -- Get the snap points from the mat and find ones tagged "Rune"
+  local snapPoints = matObject.getSnapPoints()
+  local runeSnapPoints = {}
+
+  if snapPoints then
+    for _, snap in ipairs(snapPoints) do
+      if snap.tags then
+        for _, tag in ipairs(snap.tags) do
+          if tag == "Rune" then
+            table.insert(runeSnapPoints, snap.position)
+            break
+          end
+        end
+      end
+    end
+  end
+
+  if #runeSnapPoints == 0 then
+    -- Fallback positions from the Myrtle.json snap points
+    runeSnapPoints = {
+      { x = 0.176, y = 0.1, z = -0.034 },
+      { x = 0.013, y = 0.1, z = -0.279 },
+      { x = -0.141, y = 0.1, z = -0.515 },
+      { x = -0.284, y = 0.1, z = -0.764 }
+    }
+  end
+
+  -- Store playerColor on the mat for the click handler
+  matObject.setVar("ownerColor", playerColor)
+
+  -- Click function names for each slot (defined in Global.ttslua)
+  local clickFunctions = {
+    "onRuneSlot1Click",
+    "onRuneSlot2Click",
+    "onRuneSlot3Click",
+    "onRuneSlot4Click"
+  }
+
+  -- Create native TTS buttons at each rune snap point
+  -- Buttons are small, semi-transparent, and don't block snapping
+  -- Reflect across Y axis (flip X) to match mat orientation
+  for i, pos in ipairs(runeSnapPoints) do
+    local clickFunc = clickFunctions[i] or "onRuneSlot1Click"
+    matObject.createButton({
+      click_function = clickFunc,
+      function_owner = Global,
+      label = "+",
+      position = { -pos.x, pos.y + 0.01, pos.z },  -- Flip X to reflect across Y axis
+      rotation = { 0, 0, 0 },
+      width = 150,
+      height = 150,
+      font_size = 100,
+      font_color = { 1, 1, 1, 0.9 },
+      color = { 0, 0, 0, 0 },           -- Fully transparent background
+      hover_color = { 1, 1, 1, 0.2 },   -- Slight highlight on hover
+      press_color = { 1, 1, 1, 0.3 },
+      tooltip = "Add Rune (Slot " .. i .. ")"
+    })
+  end
+end
+
+--- Clear rune slot buttons from a playermat
+---@param matObject object The playermat TTS object
+function UILib.clearRuneSlotsOnMat(matObject)
+  if matObject then
+    matObject.clearButtons()
+  end
+end
+
+-------------------------------------------------------------------------------
+-- MARK: UI Component Builders (for Started State)
+-------------------------------------------------------------------------------
+
+--- Build reference window for a player
+---@param playerColor string The player color
+---@return table The reference window XML element
+function UILib.buildReferenceWindow(playerColor)
+  return {
+    tag = "VerticalLayout",
+    attributes = {
+      id            = playerColor .. "_reference_window",
+      height        = 1200,
+      width         = 942,
+      rectAlignment = "MiddleCenter",
+      active        = "false",
+      visibility    = playerColor,
+      scale         = "0.75 0.75 1"
+    },
+    children = {
+      -- Image Display
+      {
+        tag = "Image",
+        attributes = {
+          id              = playerColor .. "_reference_image",
+          image           = "", -- will be set by the asset request success
+          preferredHeight = 1200,
+          height          = 1200
+        }
+      },
+      -- Close Button
+      {
+        tag = "Button",
+        attributes = {
+          onClick              = "xml_closeReference",
+          color                = UITheme.colors.muted,
+          preferredHeight      = 75,
+          height               = 75,
+        },
+        children = {
+          {
+            tag = "Text",
+            attributes = {
+              text = "Close",
+              font = "font_opsilon/opsilon-italic",
+              fontSize = UITheme.sizes.fontSize.md,
+              color = UITheme.colors.text,
+              alignment = "MiddleCenter",
+              resizeTextForBestFit = true,
+              resizeTextMinSize = 12
+            }
+          }
+        }
+      }
+    }
+  }
+end
+
+--- Build tooltip window for a player
+---@param playerColor string The player color
+---@return table The tooltip window XML element
+function UILib.buildTooltipWindow(playerColor)
+  return {
+    tag        = "Panel",
+    attributes = {
+      id            = playerColor .. "_tooltip_window",
+      scale         = "0.2 0.2 1",
+      width         = 2700,
+      height        = 450,
+      padding       = "30 30 30 30",
+      color         = UITheme.colors.background,
+      offsetXY      = "0 -80",
+      rectAlignment = "UpperCenter",
+      visibility    = playerColor,
+      active        = false
+    },
+    children   = {
+      {
+        tag        = "Text",
+        attributes = {
+          id                   = playerColor .. "_tooltip_title",
+          preferredWidth       = 900,
+          resizeTextForBestFit = true,
+          resizeTextMinSize    = 100,
+          font                 = "font_opsilon/opsilon-regular",
+          color                = UITheme.colors.text
+        }
+      },
+      {
+        tag        = "Text",
+        attributes = {
+          id                   = playerColor .. "_tooltip_text",
+          preferredWidth       = 1800,
+          resizeTextForBestFit = true,
+          resizeTextMinSize    = 80,
+          horizontalOverflow   = "Wrap",
+          verticalOverflow     = "Overflow",
+          font                 = "font_opsilon/opsilon-italic",
+          color                = UITheme.colors.text
+        }
+      }
+    }
+  }
+end
+
+--- Build class breakpoints window for a player
+---@param playerColor string The player color
+---@return table The class breakpoints window XML element
+function UILib.buildClassBreakpointsWindow(playerColor)
+  return {
+    tag = "Panel",
+    attributes = {
+      id            = playerColor .. "_classbreakpoints_window",
+      width         = 350,
+      height        = 580,
+      color         = UITheme.colors.surface,
+      rectAlignment = "LowerRight",
+      offsetXY      = "-260 100",
+      visibility    = playerColor,
+      active        = false,
+      outline       = UITheme.colors.muted,
+      outlineSize   = "1",
+      padding       = "12 12 12 12"
+    },
+    children = {
+      {
+        tag = "VerticalLayout",
+        attributes = {
+          spacing = 6
+        },
+        children = {
+          -- Header row: icon + name
+          {
+            tag = "HorizontalLayout",
+            attributes = {
+              preferredHeight = 40,
+              spacing         = 8
+            },
+            children = {
+              {
+                tag = "Image",
+                attributes = {
+                  id              = playerColor .. "_classbreakpoints_icon",
+                  image           = "",
+                  preserveAspect  = true,
+                  preferredWidth  = 36,
+                  preferredHeight = 36
+                }
+              },
+              {
+                tag = "Text",
+                attributes = {
+                  id              = playerColor .. "_classbreakpoints_header",
+                  text            = "",
+                  fontSize        = UITheme.sizes.fontSize.xl,
+                  fontStyle       = "Bold",
+                  color           = UITheme.colors.text,
+                  alignment       = "MiddleLeft"
+                }
+              }
+            }
+          },
+          -- Description
+          {
+            tag = "Text",
+            attributes = {
+              id                 = playerColor .. "_classbreakpoints_desc",
+              text               = "",
+              fontSize           = UITheme.sizes.fontSize.md,
+              color              = UITheme.colors.muted,
+              alignment          = "UpperLeft",
+              horizontalOverflow = "Wrap",
+              preferredHeight    = 55
+            }
+          },
+          -- Tags row (placeholder)
+          {
+            tag = "Text",
+            attributes = {
+              id              = playerColor .. "_classbreakpoints_tags",
+              text            = "",
+              fontSize        = UITheme.sizes.fontSize.xs,
+              color           = UITheme.colors.muted,
+              alignment       = "UpperLeft",
+              preferredHeight = 20
+            }
+          },
+          -- Breakpoints content - simple text list
+          {
+            tag = "Text",
+            attributes = {
+              id                 = playerColor .. "_classbreakpoints_content",
+              text               = "",
+              fontSize           = UITheme.sizes.fontSize.lg,
+              color              = UITheme.colors.text,
+              alignment          = "UpperLeft",
+              horizontalOverflow = "Wrap",
+              verticalOverflow   = "Overflow",
+              preferredHeight    = 380
+            }
+          },
+          -- Footer
+          {
+            tag = "Text",
+            attributes = {
+              id                 = playerColor .. "_classbreakpoints_footer",
+              text               = "",
+              fontSize           = UITheme.sizes.fontSize.xs,
+              color              = UITheme.colors.muted,
+              fontStyle          = "Italic",
+              alignment          = "UpperLeft",
+              horizontalOverflow = "Wrap",
+              preferredHeight    = 30
+            }
+          }
+        }
+      }
+    }
+  }
+end
+
+-------------------------------------------------------------------------------
+-- MARK: State-Driven UI Building
+-------------------------------------------------------------------------------
+
+--- Build UI elements for Lobby State (before game starts)
+--- Only shows character selection panel
+---@param xml table The XML array to append elements to
+function UILib.buildLobbyStateUI(xml)
+  -- Use LobbyUI module for character select panel
+  local lobbyPanel = LobbyUI.build()
+  if lobbyPanel then
+    table.insert(xml, lobbyPanel)
+  end
+
+  -- Use GlobalUI module for announcement panel (can show announcements even in lobby)
+  local announcement = GlobalUI.buildAnnouncement()
+  if announcement then
+    table.insert(xml, announcement)
+  end
+end
+
+--- Build UI elements for Started State (after game starts)
+--- Shows full game UI with player sidebars, panels, and controls
+---@param xml table The XML array to append elements to
+function UILib.buildStartedStateUI(xml)
+  -- Per-player UI elements
+  for _, playerColor in ipairs(PLAYER_COLORS) do
+    -- Use SidebarUI module for sidebar with traits and tools
+    local sidebar = SidebarUI.build(playerColor)
+    if sidebar then
+      table.insert(xml, sidebar)
+    end
+
+    -- Use DebugPanelUI module for debug panel
+    local debugPanel = DebugPanelUI.build(playerColor)
+    if debugPanel then
+      table.insert(xml, debugPanel)
+    end
+
+    -- Use DiceSpawnerUI module for dice spawner
+    local diceSpawner = DiceSpawnerUI.build(playerColor)
+    if diceSpawner then
+      table.insert(xml, diceSpawner)
+    end
+
+    -- Use RuneSelectorUI module for rune selector
+    local runeSelector = RuneSelectorUI.build(playerColor)
+    if runeSelector then
+      table.insert(xml, runeSelector)
+    end
+
+    -- Use ResourceTrackerUI module for blood/VP tracking
+    local resourceTracker = ResourceTrackerUI.build(playerColor)
+    if resourceTracker then
+      table.insert(xml, resourceTracker)
+    end
+
+    -- Keep reference, tooltip, and class breakpoints windows from UILib for now
+    table.insert(xml, UILib.buildReferenceWindow(playerColor))
+    table.insert(xml, UILib.buildTooltipWindow(playerColor))
+    table.insert(xml, UILib.buildClassBreakpointsWindow(playerColor))
+  end
+
+  -- Use GlobalUI module for global UI elements
+  local topButtons = GlobalUI.buildTopButtons()
+  if topButtons then
+    table.insert(xml, topButtons)
+  end
+
+  local realmNav = GlobalUI.buildRealmNavigator()
+  if realmNav then
+    table.insert(xml, realmNav)
+  end
+
+  local announcement = GlobalUI.buildAnnouncement()
+  if announcement then
+    table.insert(xml, announcement)
+  end
+
+  -- Add per-player navigation selectors
+  for _, playerColor in ipairs(PLAYER_COLORS) do
+    local navSelector = GlobalUI.buildNavigationSelector(playerColor)
+    if navSelector then
+      table.insert(xml, navSelector)
+    end
+  end
+end
+
+-------------------------------------------------------------------------------
+-- MARK: Main XML Generation Function (State-Driven)
+-------------------------------------------------------------------------------
+
+--- Create and apply the global UI based on current game state
+--- Checks GameState.gameStarted to determine which UI to show
+function UILib.createGlobalXml()
+  local xml = {}
+
+  if GameState.gameStarted then
+    -- STARTED STATE: Full game UI
+    UILib.buildStartedStateUI(xml)
+  else
+    -- LOBBY STATE: Character select only
+    UILib.buildLobbyStateUI(xml)
+  end
+
+  -- Apply the XML to the UI (restricted to valid seated player colors)
+  local root = {
+    tag = "Panel",
+    attributes = {
+      id = "root_player_ui",
+      visibility = UITheme.getPlayerVisibility(),
+      width = "100%",
+      height = "100%"
+    },
+    children = xml
+  }
+  UI.setXmlTable({ root })
+
+  -- Re-apply reference sheet URL after UI rebuild (it gets lost when XML is reset)
+  if GameState.gameStarted and GameState.referenceSheetUrl then
+    Wait.frames(function()
+      for _, playerColor in ipairs(PLAYER_COLORS) do
+        UI.setAttribute(playerColor .. "_reference_image", "image", GameState.referenceSheetUrl)
+      end
+    end, 2)
+  end
+
+end
+
+-------------------------------------------------------------------------------
+-- MARK: Tooltip Functions
+-------------------------------------------------------------------------------
+
+function UILib.onHover(player, guid, panelId)
+  local ttName = getObjectFromGUID(guid).UI.getAttribute(panelId, "ttName")
+
+  UI.setAttribute(player.color .. "_tooltip_title", "text", ttName)
+  UI.setAttribute(player.color .. "_tooltip_text", "text", TOOLTIP_DATA[ttName])
+  UI.setAttribute(player.color .. "_tooltip_window", "active", true)
+end
+
+function UILib.onExit(player, guid, panelId)
+  UI.setAttribute(player.color .. "_tooltip_window", "active", false)
+end
+
+-------------------------------------------------------------------------------
+-- MARK: Reference Window Functions
+-------------------------------------------------------------------------------
+
+function UILib.showReference(player)
+  UI.setAttribute(player.color .. "_reference_window", "active", true)
+end
+
+function UILib.closeReference(player)
+  UI.setAttribute(player.color .. "_reference_window", "active", false)
+end
+
+-------------------------------------------------------------------------------
+-- MARK: Dynamic UI Update Functions
+-------------------------------------------------------------------------------
+
+--- Update all UI elements for a specific player
+--- Class reference is now static, so this is a no-op for traits
+---@param playerColor string The player color
+function UILib.updatePlayerUI(playerColor)
+  -- Class reference section is static, no updates needed
+  -- Keep this function for backwards compatibility with other modules
+end
+
+--- Force immediate UI update without debouncing
+--- Class reference is now static, so this is a no-op for traits
+---@param playerColor string The player color
+function UILib.updatePlayerUIImmediate(playerColor)
+  -- Class reference section is static, no updates needed
+  -- Keep this function for backwards compatibility with other modules
+end
+
+--- Update the Spirit World draw button state (draw vs discard)
+---@param isDiscardMode boolean True if player needs to discard, false for draw mode
+function UILib.updateDraw2Pick1Button(isDiscardMode)
+  if isDiscardMode then
+    UI.setAttribute("btn_draw2pick1_label", "text", "Discard Hand (Spirit World)")
+    UI.setAttribute("btn_draw2pick1", "color", UITheme.colors.danger)
+    UI.setAttribute("btn_draw2pick1_label", "color", UITheme.colors.text)
+  else
+    UI.setAttribute("btn_draw2pick1_label", "text", "Draw 4 Spirits, Summon 2 (Spirit World)")
+    UI.setAttribute("btn_draw2pick1", "color", UITheme.colors.surface)
+    UI.setAttribute("btn_draw2pick1_label", "color", UITheme.colors.text)
+  end
+end
+
+-------------------------------------------------------------------------------
+-- MARK: Debug Panel Functions
+-------------------------------------------------------------------------------
+
+--- Show the debug panel for a player (delegates to DebugPanelUI)
+---@param player object The player object
+function UILib.showDebugPanel(player)
+  local playerColor = player.color
+  local charName = GameState.selectedCharacters[playerColor] or "None"
+  local playerState = PlayerMatLib.getState(playerColor)
+
+  -- Delegate to DebugPanelUI module for update logic
+  DebugPanelUI.update(playerColor, playerState, charName)
+
+  -- Show the panel
+  DebugPanelUI.show(playerColor)
+end
+
+--- Close the debug panel for a player
+---@param player object The player object
+function UILib.closeDebugPanel(player)
+  DebugPanelUI.hide(player.color)
+end
+
+-------------------------------------------------------------------------------
+-- MARK: Class Breakpoints Panel Functions
+-------------------------------------------------------------------------------
+
+--- Show the class breakpoints panel for a player
+---@param player object The player object
+---@param className string The class name to display
+function UILib.showClassBreakpoints(player, className)
+  local playerColor = player.color
+  local classData = GameState.classesByName[className]
+
+  if not classData then
+    player.broadcast("Class data not found for: " .. className, {1, 0, 0})
+    return
+  end
+
+  -- Set header and icon
+  UI.setAttribute(playerColor .. "_classbreakpoints_header", "text", className)
+  UI.setAttribute(playerColor .. "_classbreakpoints_icon", "image", classData.icon_url or "")
+
+  -- Set description
+  UI.setAttribute(playerColor .. "_classbreakpoints_desc", "text", classData.description or "")
+
+  -- Set tags if available
+  local tagsText = ""
+  if classData.tags and #classData.tags > 0 then
+    tagsText = table.concat(classData.tags, "  ")
+  end
+  UI.setAttribute(playerColor .. "_classbreakpoints_tags", "text", tagsText)
+
+  -- Build breakpoints content - simple format like reference image
+  local lines = {}
+  if classData.effect_schema then
+    local sortedBreakpoints = {}
+    for _, bp in ipairs(classData.effect_schema) do
+      table.insert(sortedBreakpoints, bp)
+    end
+    table.sort(sortedBreakpoints, function(a, b) return a.count < b.count end)
+
+    for _, breakpoint in ipairs(sortedBreakpoints) do
+      -- Build line: (count) effect1  effect2
+      local effectParts = {}
+      if breakpoint.effects then
+        for _, effect in ipairs(breakpoint.effects) do
+          if effect.type == "dice" then
+            local diceData = GameState.diceById[effect.dice_id]
+            local diceName = diceData and diceData.name or "?"
+            table.insert(effectParts, effect.quantity .. "x " .. diceName)
+          elseif effect.type == "benefit" and effect.description then
+            table.insert(effectParts, effect.description)
+          end
+        end
+      end
+
+      local effectStr = table.concat(effectParts, "   ")
+      local line = "(" .. breakpoint.count .. ")  " .. effectStr
+      table.insert(lines, line)
+    end
+  end
+
+  local contentText = table.concat(lines, "\n\n")
+  UI.setAttribute(playerColor .. "_classbreakpoints_content", "text", contentText)
+
+  -- Set footer
+  local footerText = classData.footer or ""
+  UI.setAttribute(playerColor .. "_classbreakpoints_footer", "text", footerText)
+
+  -- Calculate dynamic panel height based on number of breakpoints
+  local numBreakpoints = classData.effect_schema and #classData.effect_schema or 0
+  local baseHeight = 160  -- Header, description, tags, footer, padding
+  local perBreakpointHeight = 45  -- Height per breakpoint line (with double spacing)
+  local calculatedHeight = baseHeight + (numBreakpoints * perBreakpointHeight)
+
+  -- Set minimum and maximum bounds
+  calculatedHeight = math.max(200, math.min(calculatedHeight, 700))
+
+  UI.setAttribute(playerColor .. "_classbreakpoints_window", "height", calculatedHeight)
+
+  -- Also adjust content area height
+  local contentHeight = numBreakpoints * perBreakpointHeight
+  UI.setAttribute(playerColor .. "_classbreakpoints_content", "preferredHeight", contentHeight)
+
+  -- Show the panel
+  UI.setAttribute(playerColor .. "_classbreakpoints_window", "active", true)
+end
+
+--- Close the class breakpoints panel for a player
+---@param player object The player object
+function UILib.closeClassBreakpoints(player)
+  UI.setAttribute(player.color .. "_classbreakpoints_window", "active", false)
+  UILib.openClassBreakpointsFor[player.color] = nil
+end
+
+-- Track which class panel is open per player
+UILib.openClassBreakpointsFor = {}
+
+--- Toggle the class breakpoints panel - close if same class, open if different
+---@param player object The player object
+---@param className string The class name to display
+function UILib.toggleClassBreakpoints(player, className)
+  local playerColor = player.color
+  local currentlyOpen = UILib.openClassBreakpointsFor[playerColor]
+
+  if currentlyOpen == className then
+    -- Same class clicked, close the panel
+    UILib.closeClassBreakpoints(player)
+  else
+    -- Different class or no panel open, show the new one
+    UILib.showClassBreakpoints(player, className)
+    UILib.openClassBreakpointsFor[playerColor] = className
+  end
+end
+
+-------------------------------------------------------------------------------
+-- MARK: Rune Selector Panel Functions
+-------------------------------------------------------------------------------
+
+-- Track which rune slot is being edited per player
+UILib.activeRuneSlot = {}
+
+-- Track dice spawn counts per player (diceId -> count)
+UILib.diceSpawnCounts = {}
+
+--- Open the rune selector panel for a specific slot
+---@param player object The player object
+---@param slotIndex number The rune slot index (1-4)
+function UILib.openRuneSelector(player, slotIndex)
+  local playerColor = player.color
+  UILib.activeRuneSlot[playerColor] = slotIndex
+
+  -- Update header to show slot number
+  UI.setAttribute(playerColor .. "_runeselector_header", "text", "Select Rune (Slot " .. slotIndex .. ")")
+
+  -- Show the panel
+  UI.setAttribute(playerColor .. "_runeselector_window", "active", true)
+end
+
+--- Close the rune selector panel
+---@param player object The player object
+function UILib.closeRuneSelector(player)
+  local playerColor = player.color
+  UILib.activeRuneSlot[playerColor] = nil
+  UI.setAttribute(playerColor .. "_runeselector_window", "active", false)
+end
+
+--- Handle rune selection - spawn the rune at the appropriate slot position
+---@param player object The player object
+---@param runeId string The selected rune's ID
+function UILib.selectRune(player, runeId)
+  local playerColor = player.color
+  local slotIndex = UILib.activeRuneSlot[playerColor]
+
+  if not slotIndex then
+    player.broadcast("No rune slot selected", {1, 0, 0})
+    return
+  end
+
+  local runeData = GameState.runesById[runeId]
+  if not runeData then
+    player.broadcast("Rune data not found", {1, 0, 0})
+    return
+  end
+
+  -- Get the player's mat from PlayerMatLib
+  local PlayerMatLibLocal = require("game/PlayerMatLib")
+  local playermat = PlayerMatLibLocal.getPlayerMatObject(playerColor)
+
+  if not playermat then
+    player.broadcast("Player mat not found", {1, 0, 0})
+    return
+  end
+
+  -- Get world position for this rune slot using RUNE_SLOT_POSITIONS
+  local slotData = UILib.RUNE_SLOT_POSITIONS[slotIndex]
+  if not slotData then
+    player.broadcast("Invalid rune slot", {1, 0, 0})
+    return
+  end
+
+  -- slotData.local_pos is already a Vector, use it directly
+  local worldPos = playermat.positionToWorld(slotData.local_pos)
+  worldPos.y = worldPos.y + 0.5  -- Spawn slightly above
+
+  -- Use ObjectTemplateLib to create the rune object
+  local runeObj = ObjectTemplateLib.getTemplate("Tile")
+  runeObj.Nickname = runeData.name
+  runeObj.CustomImage.ImageURL = runeData.icon_url
+  runeObj.CustomImage.CustomTile.Type = 2         -- Circle tile
+  runeObj.CustomImage.CustomTile.Thickness = 0.2
+  runeObj.CustomImage.CustomTile.Stretch = true
+  runeObj.Transform.scaleX = 1
+  runeObj.Transform.scaleY = 1
+  runeObj.Transform.scaleZ = 1
+  runeObj.ColorDiffuse = { r = 0, g = 0, b = 0 }  -- Black (matches working runes)
+  runeObj.Tags = { "Rune" }
+  runeObj.GMNotes = JSON.encode({
+    id = runeData.id,
+    type = runeData.type,
+    originId = runeData.origin_id,
+    classId = runeData.class_id
+  })
+
+  -- Spawn the rune
+  spawnObjectData({
+    data = runeObj,
+    position = worldPos,
+    rotation = playermat.getRotation(),
+    callback_function = function(obj)
+      player.broadcast("Spawned " .. runeData.name .. " rune", {0.5, 1, 0.5})
+    end
+  })
+
+  -- Close the selector
+  UILib.closeRuneSelector(player)
+end
+
+-------------------------------------------------------------------------------
+-- MARK: Dice Spawner Panel Functions
+-------------------------------------------------------------------------------
+
+--- Open the dice spawner panel for a player
+---@param player object The player object
+function UILib.showDiceSpawner(player)
+  local playerColor = player.color
+  local customDice = GameState.customDice or {}
+
+  -- Build combined dice list with Defense Dice first (from DiceSpawnerUI module)
+  local defenseDice = DiceSpawnerUI.getDefenseDice()
+  local allDice = { defenseDice }
+  for _, d in ipairs(customDice) do
+    table.insert(allDice, d)
+  end
+
+  -- Initialize dice counts only if not already set (persistent)
+  if not UILib.diceSpawnCounts[playerColor] then
+    UILib.diceSpawnCounts[playerColor] = {}
+    for _, diceData in ipairs(allDice) do
+      local isDefense = diceData.name and string.lower(diceData.name):find("defense")
+      local defaultCount = isDefense and 1 or 0
+      UILib.diceSpawnCounts[playerColor][diceData.id] = defaultCount
+    end
+  end
+
+  -- Update UI to show current counts
+  for _, diceData in ipairs(allDice) do
+    local count = UILib.diceSpawnCounts[playerColor][diceData.id] or 0
+    UI.setAttribute(playerColor .. "_dice_count_" .. diceData.id, "text", tostring(count))
+  end
+
+  -- Show the panel
+  UI.setAttribute(playerColor .. "_dicespawner_window", "active", true)
+end
+
+--- Close the dice spawner panel
+---@param player object The player object
+function UILib.closeDiceSpawner(player)
+  local playerColor = player.color
+  -- Don't clear counts - keep them persistent
+  UI.setAttribute(playerColor .. "_dicespawner_window", "active", false)
+end
+
+--- Adjust the count for a specific dice type
+---@param player object The player object
+---@param diceId string The dice ID
+---@param delta number The amount to adjust (+1 or -1)
+function UILib.adjustDiceCount(player, diceId, delta)
+  local playerColor = player.color
+
+  -- Initialize if needed
+  if not UILib.diceSpawnCounts[playerColor] then
+    UILib.diceSpawnCounts[playerColor] = {}
+  end
+
+  local currentCount = UILib.diceSpawnCounts[playerColor][diceId] or 0
+  local newCount = math.max(0, math.min(10, currentCount + delta))  -- Clamp 0-10
+  UILib.diceSpawnCounts[playerColor][diceId] = newCount
+
+  -- Update UI
+  UI.setAttribute(playerColor .. "_dice_count_" .. diceId, "text", tostring(newCount))
+end
+
+--- Spawn all selected dice on the player's mat
+---@param player object The player object
+function UILib.spawnSelectedDice(player)
+  local playerColor = player.color
+  local counts = UILib.diceSpawnCounts[playerColor]
+
+  if not counts then
+    player.broadcast("No dice selected", {1, 0.5, 0.5})
+    return
+  end
+
+  -- Get the player's mat
+  local playermat = PlayerMatLib.getPlayerMatObject(playerColor)
+  if not playermat then
+    player.broadcast("Player mat not found", {1, 0, 0})
+    return
+  end
+
+  -- Clear old spawned dice for this player
+  local diceTag = "SpawnedDice_" .. playerColor
+  for _, obj in ipairs(getObjectsWithTag(diceTag)) do
+    obj.destruct()
+  end
+
+  -- Calculate spawn position (center-right of mat, above it)
+  local matRot = playermat.getRotation()
+
+  -- Count total dice to spawn
+  local totalDice = 0
+  for _, count in pairs(counts) do
+    totalDice = totalDice + count
+  end
+
+  if totalDice == 0 then
+    player.broadcast("No dice selected to spawn", {1, 0.5, 0.5})
+    return
+  end
+
+  -- Spawn dice in a 5x5 grid pattern
+  local diceIndex = 0
+  local gridCols = 5
+  local spacingX = 0.25  -- Gap between columns
+  local spacingZ = 0.25  -- Gap between rows
+
+  local defenseDice = DiceSpawnerUI.getDefenseDice()
+  for diceId, count in pairs(counts) do
+    if count > 0 then
+      -- Look up dice data (check for defense dice first via DiceSpawnerUI)
+      local diceData = diceId == "defense_dice" and defenseDice or GameState.diceById[diceId]
+      if diceData then
+        -- Get image URL (handle both transformed and raw API data)
+        local imageUrl = diceData.imageUrl or diceData.prefab_image_url
+        if not imageUrl or imageUrl == "" then
+          -- Skip this dice type if no image
+        else
+          -- Determine dice configuration (only "Defense Dice" is d12, all others are d6)
+          local isD12 = diceData.name and string.lower(diceData.name):find("defense")
+          local customDiceType = isD12 and 4 or 1
+
+          for i = 1, count do
+            -- Calculate grid position (5 columns, rows go upward in Z)
+            local col = diceIndex % gridCols
+            local row = math.floor(diceIndex / gridCols)
+
+            -- Local offset: columns spread along X, rows spread along Z (upward on mat)
+            local localX = -0.5 - (col * spacingX)
+            local localZ = row * spacingZ
+            local spawnPos = playermat.positionToWorld(Vector(localX, 0.5, localZ))
+
+            -- Capture values for closure
+            local capturedImageUrl = imageUrl
+            local capturedType = customDiceType
+            local capturedName = diceData.name
+            local capturedIndex = diceIndex
+            local capturedY = matRot.y
+            local capturedSpawnPos = spawnPos
+            local capturedDiceTag = diceTag
+
+            -- Use spawnObjectData with template (avoids URL prompt)
+            Wait.frames(function()
+              local diceTemplate = ObjectTemplateLib.getTemplate("Dice")
+              diceTemplate.Nickname = capturedName
+              diceTemplate.CustomImage.ImageURL = capturedImageUrl
+              diceTemplate.CustomImage.CustomDice.Type = capturedType
+              diceTemplate.Transform.posX = capturedSpawnPos.x
+              diceTemplate.Transform.posY = capturedSpawnPos.y
+              diceTemplate.Transform.posZ = capturedSpawnPos.z
+              diceTemplate.Transform.rotY = capturedY
+              diceTemplate.Tags = { "Die", capturedDiceTag }
+
+              spawnObjectData({ data = diceTemplate })
+            end, capturedIndex * 5)
+
+            diceIndex = diceIndex + 1
+          end
+        end
+      end
+    end
+  end
+
+  player.broadcast("Spawning " .. totalDice .. " dice...", {0.5, 1, 0.5})
+
+  -- Close the panel
+  UILib.closeDiceSpawner(player)
+end
+
+-------------------------------------------------------------------------------
+-- MARK: Global Announcement Functions
+-------------------------------------------------------------------------------
+
+--- Show a large centered announcement on all players' screens
+---@param text string The announcement text
+---@param duration number How long to show in seconds (default 3)
+---@param color table Optional color {r, g, b} (default gold)
+function UILib.showGlobalAnnouncement(text, duration, color)
+  duration = duration or 3
+  color = color or {r=1, g=0.84, b=0}
+
+  -- Convert color to hex
+  local colorHex = string.format("#%02x%02x%02x",
+    math.floor(color.r * 255),
+    math.floor(color.g * 255),
+    math.floor(color.b * 255))
+
+  -- Update the announcement text and color
+  UI.setAttribute("global_announcement_text", "text", text)
+  UI.setAttribute("global_announcement_text", "color", colorHex)
+
+  -- Show the announcement
+  UI.setAttribute("global_announcement", "active", true)
+
+  -- Hide after duration
+  Wait.time(function()
+    UI.setAttribute("global_announcement", "active", false)
+  end, duration)
+end
+
+--- Show a two-line announcement (main text + subtitle)
+---@param mainText string The main announcement text
+---@param subText string The subtitle text
+---@param duration number How long to show in seconds (default 3)
+---@param mainColor table Optional color for main text {r, g, b} (default gold)
+---@param subColor table Optional color for subtitle {r, g, b} (default white)
+function UILib.showGlobalAnnouncementWithSub(mainText, subText, duration, mainColor, subColor)
+  duration = duration or 3
+  mainColor = mainColor or {r=1, g=0.84, b=0}
+  subColor = subColor or {r=1, g=1, b=1}
+
+  -- Convert colors to hex
+  local mainColorHex = string.format("#%02x%02x%02x",
+    math.floor(mainColor.r * 255),
+    math.floor(mainColor.g * 255),
+    math.floor(mainColor.b * 255))
+  local subColorHex = string.format("#%02x%02x%02x",
+    math.floor(subColor.r * 255),
+    math.floor(subColor.g * 255),
+    math.floor(subColor.b * 255))
+
+  -- Update the announcement text and color
+  UI.setAttribute("global_announcement_text", "text", mainText)
+  UI.setAttribute("global_announcement_text", "color", mainColorHex)
+  UI.setAttribute("global_announcement_subtext", "text", subText)
+  UI.setAttribute("global_announcement_subtext", "color", subColorHex)
+
+  -- Show the announcement
+  UI.setAttribute("global_announcement", "active", true)
+
+  -- Hide after duration
+  Wait.time(function()
+    UI.setAttribute("global_announcement", "active", false)
+  end, duration)
+end
+
+return UILib

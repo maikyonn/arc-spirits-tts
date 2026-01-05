@@ -1,0 +1,794 @@
+-------------------------------------------------------------------------------
+-- SupabaseLib: Centralized Supabase data loading and asset generation
+-------------------------------------------------------------------------------
+
+local SupabaseLib = {}
+
+local GameState = require("state/GameState")
+local ObjectTemplateLib = require("util/ObjectTemplateLib")
+local TableLib = require("util/TableLib")
+local WebRequestLib = require("api/WebRequestLib")
+
+-------------------------------------------------------------------------------
+-- Configuration
+-------------------------------------------------------------------------------
+
+local ASSET_HOST_URL = "https://gvxfokbptelmvvlxbigh.supabase.co/functions/v1/export-all-tts-json"
+local SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd2eGZva2JwdGVsbXZ2bHhiaWdoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTI4NzY4NTAsImV4cCI6MjA2ODQ1Mjg1MH0.QLIyWCf8AGIUDmGlttbqRKrxxBSOBn_B5O-0yuCwlGE"
+
+-------------------------------------------------------------------------------
+-- Callback (set by Global.ttslua)
+-------------------------------------------------------------------------------
+
+local onLoadCompleteCallback = nil  -- function(data) called when all data is loaded
+
+function SupabaseLib.setOnLoadComplete(callback)
+  onLoadCompleteCallback = callback
+end
+
+-------------------------------------------------------------------------------
+-- Data Storage (accessible after load)
+-------------------------------------------------------------------------------
+
+	local loadedData = {
+	  exportedAt = nil,
+	  edition = nil,
+	  origins = {},
+	  hexSpirits = {},
+	  artifacts = {},
+	  iconPool = {},
+	  tokens = {},
+	  monsters = {},
+	  travelers = {},
+	  travelerQuests = {},
+	  guardians = {},
+	  runes = {},
+	  customDice = {},
+	  classes = {},
+	  iconGuideUrl = nil,
+	  iconGuideIcons = {},
+	  iconGuide = {
+	    url = nil,
+	    icons = {}
+	  },
+	  ttsMenu = {
+	    backgroundUrl = nil
+	  }
+	}
+
+function SupabaseLib.getData()
+  return loadedData
+end
+
+function SupabaseLib.getGuardians()
+  return loadedData.guardians
+end
+
+function SupabaseLib.getPlayableGuardians()
+  local playable = {}
+  for _, g in ipairs(loadedData.guardians) do
+    if g.mat_image_url then
+      table.insert(playable, g)
+    end
+  end
+  return playable
+end
+
+function SupabaseLib.getCustomDice()
+  return loadedData.customDice
+end
+
+function SupabaseLib.getClasses()
+  return loadedData.classes
+end
+
+function SupabaseLib.getRunes()
+  return loadedData.runes
+end
+
+function SupabaseLib.getTtsMenu()
+  return loadedData.ttsMenu
+end
+
+function SupabaseLib.getIconPool()
+  return loadedData.iconPool
+end
+
+-------------------------------------------------------------------------------
+-- Main Loading Function
+-------------------------------------------------------------------------------
+
+function SupabaseLib.loadAssets()
+  broadcastToAll("Loading Assets from remote source ...")
+
+  local headers = {
+    ["Authorization"] = "Bearer " .. SUPABASE_ANON_KEY,
+    ["apikey"] = SUPABASE_ANON_KEY
+  }
+
+  WebRequestLib.get(ASSET_HOST_URL, onAssetRequestSuccess, onAssetRequestError, headers)
+end
+
+--- Fetch the icon guide image URL without rebuilding full asset state.
+--- Useful for older saves that have cached data but are missing newer fields.
+---@param callback fun(url: string|nil) Called with the icon guide URL (or nil on failure)
+function SupabaseLib.fetchIconGuideUrl(callback)
+  local headers = {
+    ["Authorization"] = "Bearer " .. SUPABASE_ANON_KEY,
+    ["apikey"] = SUPABASE_ANON_KEY
+  }
+
+  WebRequestLib.get(
+    ASSET_HOST_URL,
+    function(content)
+      local ok, decoded = pcall(function() return JSON.decode(content) end)
+      local url = (ok and decoded and decoded.icon_guide_png_url) or nil
+      if url == "" then url = nil end
+      if callback then callback(url) end
+    end,
+    function(_errorMessage, _responseCode)
+      if callback then callback(nil) end
+    end,
+    headers
+  )
+end
+
+--- Fetch Icon Guide data without rebuilding full asset state.
+--- Useful for older saves that have cached data but are missing newer fields.
+---@param callback fun(url: string|nil, icons: table|nil) Called with the icon guide PNG URL and/or icon entries.
+function SupabaseLib.fetchIconGuideData(callback)
+  local headers = {
+    ["Authorization"] = "Bearer " .. SUPABASE_ANON_KEY,
+    ["apikey"] = SUPABASE_ANON_KEY
+  }
+
+  WebRequestLib.get(
+    ASSET_HOST_URL,
+    function(content)
+      local ok, decoded = pcall(function() return JSON.decode(content) end)
+      local url = (ok and decoded and decoded.icon_guide_png_url) or nil
+      if url == "" then url = nil end
+
+      local icons = (ok and decoded and decoded.icon_guide_icons) or nil
+      if type(icons) ~= "table" then
+        icons = nil
+      end
+
+      if callback then callback(url, icons) end
+    end,
+    function(_errorMessage, _responseCode)
+      if callback then callback(nil, nil) end
+    end,
+    headers
+  )
+end
+
+function onAssetRequestSuccess(content)
+  local data = JSON.decode(content)
+  GameState.debugPrint("[SupabaseLib] Found data with timestamp: " .. data.exported_at)
+
+  -- Store raw data
+  loadedData.exportedAt = data.exported_at
+  loadedData.edition = data.edition
+  loadedData.origins = data.origins or {}
+  loadedData.hexSpirits = data.hex_spirits or {}
+  loadedData.artifacts = data.artifacts or {}
+  loadedData.monsters = data.monsters or {}
+  loadedData.travelers = data.travelers or {}
+  loadedData.travelerQuests = data.traveler_quests or {}
+  loadedData.guardians = data.guardians or {}
+  loadedData.runes = data.runes or {}
+  loadedData.customDice = SupabaseLib.transformDiceData(data.custom_dice or {})
+  loadedData.classes = data.classes or {}
+
+  -- Parse tts_menu (character select background)
+  local ttsMenu = data.tts_menu or {}
+  loadedData.ttsMenu.backgroundUrl = ttsMenu.background_url
+
+	  -- Parse icon guide image
+	  loadedData.iconGuideUrl = data.icon_guide_png_url
+	  loadedData.iconGuideIcons = data.icon_guide_icons or {}
+	  loadedData.iconGuide = {
+	    url = loadedData.iconGuideUrl,
+	    icons = loadedData.iconGuideIcons
+	  }
+
+	  -- Parse icon_pool (misc assets, boards, status tokens, resource icons)
+	  loadedData.iconPool = data.icon_pool or {}
+
+  -- Build token data from icon pool (Arcane Droplets, Avatar Barrier, vp_raw)
+  loadedData.tokens = SupabaseLib.buildTokenDataFromIconPool(loadedData.iconPool)
+
+  -- Notify load complete
+  if onLoadCompleteCallback then
+    onLoadCompleteCallback(loadedData)
+  end
+end
+
+function onAssetRequestError(errorMessage, responseCode)
+  printToAll("Could not reach host to update assets.\n(" .. ASSET_HOST_URL .. ")")
+  print(errorMessage)
+  print(responseCode)
+end
+
+-------------------------------------------------------------------------------
+-- Data Transformation Functions
+-------------------------------------------------------------------------------
+
+--- Transform raw custom_dice API response into normalized structure
+--- API fields: id, name, description, icon, color, dice_type, prefab_image_url, faces[]
+--- Normalized: id, name, description, icon, color, diceType, imageUrl, faces[]
+---@param rawDice table Array of dice objects from API
+---@return table Transformed dice array
+function SupabaseLib.transformDiceData(rawDice)
+  local result = {}
+  for _, dice in ipairs(rawDice) do
+    table.insert(result, {
+      id = dice.id,
+      name = dice.name,
+      description = dice.description,
+      icon = dice.icon,
+      color = dice.color,
+      diceType = dice.dice_type,  -- "attack" or "special"
+      imageUrl = dice.prefab_image_url,
+      faces = dice.faces or {}
+    })
+  end
+  return result
+end
+
+-------------------------------------------------------------------------------
+-- Data Generation Functions
+-------------------------------------------------------------------------------
+
+function SupabaseLib.generateSpiritData(data)
+  data = data or loadedData.hexSpirits
+
+  local regularList = {}
+  local ancientSpiritList = {}
+  local specialList = {}
+
+  for _, tbl in ipairs(data) do
+    -- parse classes
+    local classes = {}
+    for _, v in ipairs(tbl.traits.classes) do
+      classes[v.name] = (classes[v.name] or 0) + 1
+    end
+
+    -- parse origins
+    local origins = {}
+    for _, v in ipairs(tbl.traits.origins) do
+      origins[v.name] = (origins[v.name] or 0) + 1
+    end
+
+    -- generate spirit data
+    local spirit = ObjectTemplateLib.getTemplate("Token")
+    spirit.Nickname = tbl.name
+    spirit.CustomImage.ImageURL = tbl.image_url
+    spirit.Transform.scaleX = 1.58333
+    spirit.Transform.scaleY = 1
+    spirit.Transform.scaleZ = 1.58333
+    spirit.Tags = { "HexSpirit" }
+    spirit.GMNotes = JSON.encode({
+      id = tbl.id,
+      cost = tbl.cost,
+      classes = classes,
+      origins = origins
+    })
+
+    if tbl.cost > 10 and tbl.cost < 14 then
+      table.insert(ancientSpiritList, spirit)
+    elseif tbl.cost > 14 then
+      -- double size
+      spirit.Transform.scaleX = spirit.Transform.scaleX * 2
+      spirit.Transform.scaleZ = spirit.Transform.scaleZ * 2
+      table.insert(spirit.Tags, "SpecialSpirit")
+      table.insert(specialList, spirit)
+    else
+      table.insert(regularList, spirit)
+    end
+  end
+
+  return regularList, ancientSpiritList, specialList
+end
+
+function SupabaseLib.generateArtifactsData(data)
+  data = data or loadedData.artifacts
+
+  local objectList = {
+    basic = {},
+    guardian = {},
+    other = {}
+  }
+
+  for _, tbl in ipairs(data) do
+    local artifact = ObjectTemplateLib.getTemplate("Token")
+    artifact.Nickname = tbl.name
+    artifact.CustomImage.ImageURL = tbl.image_path
+    artifact.Transform.scaleX = 1.5
+    artifact.Transform.scaleY = 1
+    artifact.Transform.scaleZ = 1.5
+    artifact.Tags = { "Artifact" }
+    artifact.GMNotes = JSON.encode({ id = tbl.id })
+
+    local artifactType = SupabaseLib.getArtifactType(tbl.tag_names)
+    if artifactType == "Guardian" then
+      artifact.Transform.scaleX = artifact.Transform.scaleX * 1.56
+      artifact.Transform.scaleZ = artifact.Transform.scaleZ * 1.56
+    end
+    if artifactType == "Basic" then
+      table.insert(objectList.basic, artifact)
+    elseif artifactType == "Guardian" then
+      table.insert(objectList.guardian, artifact)
+    else
+      table.insert(objectList.other, artifact)
+    end
+  end
+
+  return objectList
+end
+
+function SupabaseLib.generateMonsterData(data)
+  data = data or loadedData.monsters
+
+  local objectList = {}
+
+  for _, tbl in ipairs(data) do
+    local monster = ObjectTemplateLib.getTemplate("Card")
+    monster.Nickname = tbl.name
+    monster.CustomDeck["1"].FaceURL = tbl.image_url
+    monster.CustomDeck["1"].BackURL = tbl.image_url
+    monster.Transform.scaleX = 2.4
+    monster.Transform.scaleY = 1
+    monster.Transform.scaleZ = 2.4
+    monster.Tags = { "Monster" }
+    monster.GMNotes = JSON.encode({
+      id = tbl.id,
+      state = tbl.state,
+      barrier = tbl.barrier,
+      damage = tbl.damage
+    })
+    monster.order = tbl.order_num
+
+    table.insert(objectList, monster)
+  end
+
+  table.sort(objectList, function(a, b) return a.order > b.order end)
+  return objectList
+end
+
+function SupabaseLib.generateTravelerData(data)
+  data = data or loadedData.travelers
+
+  local objectList = {}
+
+  for _, tbl in ipairs(data) do
+    local traveler = ObjectTemplateLib.getTemplate("Card")
+    traveler.Nickname = tbl.name
+    traveler.CustomDeck["1"].FaceURL = tbl.image_url
+    traveler.CustomDeck["1"].BackURL = tbl.image_url
+    traveler.Transform.scaleX = 3
+    traveler.Transform.scaleY = 1
+    traveler.Transform.scaleZ = 3
+    traveler.Tags = { "Traveler" }
+    traveler.GMNotes = JSON.encode({
+      id = tbl.id,
+      state = tbl.state,
+      order_num = tbl.order_num,
+      traveler_subtext = tbl.traveler_subtext,
+      traveler_description = tbl.traveler_description,
+      trade_rows = tbl.trade_rows,
+      gain_rows = tbl.gain_rows,
+      copy_index = tbl.copy_index,
+      total_copies = tbl.total_copies
+    })
+    traveler.order = tbl.order_num or 999
+    traveler.copy_index = tbl.copy_index or 0
+
+    table.insert(objectList, traveler)
+  end
+
+  table.sort(objectList, function(a, b)
+    if a.order == b.order then
+      return (a.copy_index or 0) < (b.copy_index or 0)
+    end
+    return a.order < b.order
+  end)
+
+  return objectList
+end
+
+function SupabaseLib.generateTravelerQuestData(data)
+  data = data or loadedData.travelerQuests
+
+  local objectList = {}
+
+  for _, tbl in ipairs(data) do
+    local quest = ObjectTemplateLib.getTemplate("Card")
+    quest.Nickname = tbl.title or tbl.name or "Traveler Quest"
+    quest.CustomDeck["1"].FaceURL = tbl.image_url
+    quest.CustomDeck["1"].BackURL = tbl.image_url
+    quest.Transform.scaleX = 2
+    quest.Transform.scaleY = 1
+    quest.Transform.scaleZ = 2
+    quest.Tags = { "TravelerQuest" }
+    quest.GMNotes = JSON.encode({
+      id = tbl.id,
+      title = tbl.title,
+      description = tbl.description,
+      reward_text = tbl.reward_text,
+      reward_icons = tbl.reward_icons or tbl.reward_icon_ids,
+      tags = tbl.tags,
+      order_num = tbl.order_num,
+      copy_index = tbl.copy_index,
+      total_copies = tbl.total_copies
+    })
+    quest.order = tbl.order_num or 999
+    quest.copy_index = tbl.copy_index or 0
+
+    table.insert(objectList, quest)
+  end
+
+  table.sort(objectList, function(a, b)
+    if a.order == b.order then
+      return (a.copy_index or 0) < (b.copy_index or 0)
+    end
+    return a.order < b.order
+  end)
+
+  return objectList
+end
+
+function SupabaseLib.generateIconData(data)
+  data = data or loadedData.guardians
+
+  local objectList = {}
+
+  for _, tbl in ipairs(data) do
+    if tbl.icon_image_url then
+      local icon = ObjectTemplateLib.getTemplate("Tile")
+      icon.Nickname = tbl.name
+      icon.CustomImage.ImageURL = tbl.icon_image_url
+      icon.CustomImage.CustomTile.Thickness = 0.1
+      icon.ColorDiffuse = { r = 0, g = 0, b = 0 }
+      icon.Transform.scaleX = 0.5
+      icon.Transform.scaleY = 1
+      icon.Transform.scaleZ = 0.5
+      icon.Tags = { "Icon" }
+
+      table.insert(objectList, icon)
+    end
+  end
+
+  return objectList
+end
+
+function SupabaseLib.generateRuneData(data)
+  data = data or loadedData.runes
+
+  local objectList = {}
+
+  for _, tbl in ipairs(data) do
+    local rune = ObjectTemplateLib.getTemplate("Tile")
+    rune.Nickname = tbl.name
+    rune.CustomImage.ImageURL = tbl.icon_url
+    rune.CustomImage.CustomTile.Type = 2        -- Circle tile type
+    rune.CustomImage.CustomTile.Thickness = 0.2 -- Match existing runes
+    rune.CustomImage.CustomTile.Stretch = true
+    rune.Transform.scaleX = 1
+    rune.Transform.scaleY = 1
+    rune.Transform.scaleZ = 1
+    rune.ColorDiffuse = { r = 0, g = 0, b = 0 } -- Black (matches working runes)
+    rune.Tags = { "Rune" }
+    rune.GMNotes = JSON.encode({
+      id = tbl.id,
+      type = tbl.type,
+      originId = tbl.origin_id,
+      classId = tbl.class_id
+    })
+
+    table.insert(objectList, rune)
+  end
+
+  return objectList
+end
+
+function SupabaseLib.generateOriginDestinyData(data)
+  data = data or loadedData.origins
+  local originDestinyList = {}
+
+  for _, origin in ipairs(data) do
+    -- Only include origins with enabled origin destiny (calling_card in DB) AND an associated hex spirit
+    if origin.calling_card
+       and origin.calling_card.enabled
+       and origin.calling_orb_image_url
+       and origin.associated_hex_spirit
+       and origin.associated_hex_spirit.image_url then
+
+      -- Parse classes from associated hex spirit
+      local classes = {}
+      if origin.associated_hex_spirit.traits and origin.associated_hex_spirit.traits.classes then
+        for _, v in ipairs(origin.associated_hex_spirit.traits.classes) do
+          classes[v.name] = (classes[v.name] or 0) + 1
+        end
+      end
+
+      -- Parse origins from associated hex spirit
+      local origins = {}
+      if origin.associated_hex_spirit.traits and origin.associated_hex_spirit.traits.origins then
+        for _, v in ipairs(origin.associated_hex_spirit.traits.origins) do
+          origins[v.name] = (origins[v.name] or 0) + 1
+        end
+      end
+
+      -- Create origin destiny orb token (HexSpirit tag for mat snapping, OriginDestiny for detection)
+      local destinyOrb = ObjectTemplateLib.getTemplate("Token")
+      destinyOrb.Nickname = origin.name .. " Origin Destiny"
+      destinyOrb.CustomImage.ImageURL = origin.calling_orb_image_url
+      destinyOrb.Transform.scaleX = 1.58333
+      destinyOrb.Transform.scaleY = 1
+      destinyOrb.Transform.scaleZ = 1.58333
+      destinyOrb.Tags = { "HexSpirit", "OriginDestiny" }
+      destinyOrb.GMNotes = JSON.encode({
+        id = origin.id,
+        originName = origin.name,
+        type = "originDestinyOrb",
+        -- Store Arcane Spirit data for spawning on completion
+        arcaneSpirit = {
+          id = origin.associated_hex_spirit.id,
+          name = origin.associated_hex_spirit.name,
+          imageUrl = origin.associated_hex_spirit.image_url,
+          cost = origin.associated_hex_spirit.cost,
+          classes = classes,
+          origins = origins
+        }
+      })
+      table.insert(originDestinyList, destinyOrb)
+      -- NOTE: Arcane Spirits are NOT added to any bag - they only spawn via Spirit Fusion animation
+    end
+  end
+
+  return originDestinyList
+end
+
+-------------------------------------------------------------------------------
+-- Helper Functions
+-------------------------------------------------------------------------------
+
+function SupabaseLib.getArtifactType(list)
+  for _, tag in ipairs(list) do
+    if tag == "Basic" or tag == "Guardian" then return tag end
+  end
+  return "Other"
+end
+
+function SupabaseLib.getSpiritBagUrl()
+  local asset = SupabaseLib.getIconByName("draw_spirit_bag")
+  return asset and asset.image_url or nil
+end
+
+function SupabaseLib.getSpiritWorldUrl()
+  local spiritWorld = SupabaseLib.getIconByName("SpiritWorld")
+  if spiritWorld and spiritWorld.image_url then
+    return spiritWorld.image_url
+  end
+
+  local byTag = SupabaseLib.getIconsByTag("spirit_world")
+  if byTag[1] then
+    return byTag[1].image_url
+  end
+  return nil
+end
+
+function SupabaseLib.getIconByName(name)
+  for _, entry in ipairs(loadedData.iconPool) do
+    if entry.name == name then
+      return entry
+    end
+  end
+  return nil
+end
+
+function SupabaseLib.getIconsByTag(tag)
+  local results = {}
+  for _, entry in ipairs(loadedData.iconPool) do
+    local tags = entry.tags or {}
+    for _, entryTag in ipairs(tags) do
+      if entryTag == tag then
+        table.insert(results, entry)
+        break
+      end
+    end
+  end
+  return results
+end
+
+function SupabaseLib.getStatusTokens()
+  local statusTokens = {}
+  for _, status in ipairs(SupabaseLib.getIconsByTag("status")) do
+    table.insert(statusTokens, {
+      name = status.name,
+      imageUrl = status.image_url
+    })
+  end
+  -- Sort by name in reverse order (fallen -> corrupt -> tainted -> purified)
+  table.sort(statusTokens, function(a, b) return a.name > b.name end)
+  return statusTokens
+end
+
+function SupabaseLib.getStatusTokensByLevel()
+  local statusTokens = {}
+  for _, status in ipairs(SupabaseLib.getIconsByTag("status")) do
+    local level = tonumber(string.match(status.name, "status_(%d+)_"))
+    if level then
+      local label = string.match(status.name, "status_%d+_(%w+)")
+      if label then
+        label = label:sub(1, 1):upper() .. label:sub(2)
+      else
+        label = "Status"
+      end
+      statusTokens[level] = {
+        name = label,
+        imageUrl = status.image_url
+      }
+    end
+  end
+  return statusTokens
+end
+
+function SupabaseLib.getFallenAssets()
+  local fallenAssets = {}
+  for _, fallen in ipairs(loadedData.iconPool) do
+    if string.match(fallen.name or "", "^fallen_") then
+      table.insert(fallenAssets, {
+        name = fallen.name,
+        imageUrl = fallen.image_url
+      })
+    end
+  end
+  -- Sort by name for consistent ordering
+  table.sort(fallenAssets, function(a, b) return a.name < b.name end)
+  return fallenAssets
+end
+
+function SupabaseLib.getMiscAssets()
+  return loadedData.iconPool
+end
+
+function SupabaseLib.getTokens()
+  return loadedData.tokens
+end
+
+--- Build token data list from icon pool entries
+---@param iconPool table Array of icon pool entries
+---@return table Array of token data entries
+function SupabaseLib.buildTokenDataFromIconPool(iconPool)
+  local tokenNames = {
+    ["Arcane Droplets"] = true,
+    ["Avatar Barrier"] = true,
+    ["vp_raw"] = true,
+    ["1royal"] = true,
+    ["3royal"] = true,
+    ["arcane_barrier"] = true
+  }
+
+  local tokens = {}
+  for _, entry in ipairs(iconPool or {}) do
+    if tokenNames[entry.name] and entry.image_url then
+      table.insert(tokens, {
+        id = entry.id,
+        name = entry.name,
+        source_type = entry.source_type,
+        image_url = entry.image_url
+      })
+    end
+  end
+
+  return tokens
+end
+
+--- Generate token bag data for each token in the tokens array
+--- Each token becomes a separate infinite bag containing that token
+--- Uses Custom_Tile format to match playermat tokens
+---@return table Array of { name, token } for each token bag
+function SupabaseLib.generateTokenBagsData()
+  local tokenBags = {}
+
+  for _, tokenData in ipairs(loadedData.tokens) do
+    -- Determine tags based on token type
+    -- Avatar Barrier keeps the "Barrier" tag for compatibility
+    local tags = { "GameToken" }
+    if tokenData.name == "Avatar Barrier" or tokenData.name == "arcane_barrier" then
+      tags = { "Barrier", "GameToken" }
+    end
+
+    -- Create the token as a Custom_Tile (matching barrier tokens on mats)
+    local token = {
+      Name = "Custom_Tile",
+      Nickname = tokenData.name,
+      Transform = {
+        posX = 0, posY = 0, posZ = 0,
+        rotX = 0, rotY = 180, rotZ = 0,
+        scaleX = 0.8, scaleY = 1, scaleZ = 0.8
+      },
+      Tags = tags,
+      Locked = false,
+      Snap = true,
+      Sticky = true,
+      Grid = true,
+      Autoraise = true,
+      ColorDiffuse = { r = 0, g = 0, b = 0 },
+      CustomImage = {
+        ImageURL = tokenData.image_url,
+        ImageSecondaryURL = "",
+        ImageScalar = 1,
+        WidthScale = 0,
+        CustomTile = {
+          Type = 2,
+          Thickness = 0.2,
+          Stackable = false,
+          Stretch = true
+        }
+      },
+      GMNotes = JSON.encode({
+        id = tokenData.id,
+        name = tokenData.name,
+        sourceType = tokenData.source_type
+      })
+    }
+
+    table.insert(tokenBags, {
+      name = tokenData.name,
+      token = token
+    })
+  end
+
+  return tokenBags
+end
+
+--- Get a token by name from the tokens array
+---@param name string The token name to find
+---@return table|nil The token data or nil if not found
+function SupabaseLib.getTokenByName(name)
+  for _, token in ipairs(loadedData.tokens) do
+    if token.name == name then
+      return token
+    end
+  end
+  return nil
+end
+
+-------------------------------------------------------------------------------
+-- Character/Guardian Data Helpers
+-------------------------------------------------------------------------------
+
+function SupabaseLib.buildCharacterData()
+  local availableCharacters = {}
+  local characterMatData = {}
+
+  for _, tbl in ipairs(loadedData.guardians) do
+    if tbl.name and tbl.mat_image_url then
+      table.insert(availableCharacters, tbl.name)
+      characterMatData[tbl.name] = {
+        imageUrl = tbl.mat_image_url,
+        chibiUrl = tbl.chibi_image_url,
+        iconUrl = tbl.icon_image_url,
+        originName = tbl.origin_name,
+        -- Character select URLs
+        charSelectUrl = tbl.char_select_url,
+        charSelectRedUrl = tbl.char_select_red_url,
+        charSelectOrangeUrl = tbl.char_select_orange_url,
+        charSelectYellowUrl = tbl.char_select_yellow_url,
+        charSelectGreenUrl = tbl.char_select_green_url,
+        charSelectBlueUrl = tbl.char_select_blue_url,
+        charSelectPurpleUrl = tbl.char_select_purple_url
+      }
+    end
+  end
+
+  GameState.debugPrint("[SupabaseLib] Loaded " .. #availableCharacters .. " playable characters: " .. table.concat(availableCharacters, ", "))
+
+  return availableCharacters, characterMatData
+end
+
+return SupabaseLib

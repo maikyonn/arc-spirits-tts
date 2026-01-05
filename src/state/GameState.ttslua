@@ -1,0 +1,385 @@
+-------------------------------------------------------------------------------
+-- GameState: Global shared state for all modules
+-- This module holds all game state that needs to be shared across modules
+-------------------------------------------------------------------------------
+
+local GameState = {
+  -- Debug mode (always enabled)
+  DEBUG_MODE = true,
+  DEBUG_DROP_LOGGING = false,
+
+  -- Core game state
+  fresh = true,                      -- true if game was never loaded before
+  gameStarted = false,               -- true after "Start Game" is clicked
+  gameId = nil,                      -- unique game session ID (generated on start)
+  navigationCount = 0,               -- number of completed navigation rounds
+  travelerRotationIndex = 1,         -- 1-based index for traveler rotation
+  travelerActiveId = nil,            -- active traveler id currently on board
+  travelerActiveGuid = nil,          -- GUID of the active traveler object (Card/Deck) on board
+
+  -- Character selection
+  selectedCharacters = {},           -- playerColor -> characterName
+  availableCharacters = {},          -- list of playable character names (from API)
+  characterMatData = {},             -- charName -> { imageUrl, chibiUrl, iconUrl, originName, charSelectUrl, ... }
+
+  -- TTS Menu (character select screen)
+  ttsMenu = {
+    backgroundUrl = nil              -- Background image URL for character select screen
+  },
+
+  -- Player data
+  playAreaData = {},                 -- playerColor -> { center, size, ... }
+  destinationPerPlayerColor = {},    -- playerColor -> destination
+  traitSettingsPerPlayer = {},       -- playerColor -> { traitType -> count }
+  originDestinyActive = {},          -- playerColor -> { active = bool, originName = string } or nil
+  draw2Pick1Active = {},             -- playerColor -> bool (true when player has drawn 2 and needs to discard)
+  playerResources = {},              -- playerColor -> { blood = num, victoryPoints = num, barrier = num, status = num }
+  handDrawsThisNavigation = {},      -- playerColor -> array of { guid, id, name, cost, sourceBag }
+  DEFAULT_RESOURCES = {              -- default per-player resource values
+    blood = 1,
+    victoryPoints = 0,
+    barrier = 4,
+    status = 1
+  },
+
+  -- Resource icons (loaded from API)
+  resourceIcons = {
+    blood = nil,                     -- URL for arcane blood icon
+    victoryPoint = nil,              -- URL for victory point icon
+    barrier = nil                    -- URL for barrier icon
+  },
+  statusTokens = {},                 -- statusLevel -> { name, imageUrl }
+
+	  -- UI asset URLs (loaded from API)
+	  referenceSheetUrl = nil,           -- URL for the reference sheet image
+	  iconGuideUrl = nil,                -- URL for the icon guide image
+	  iconGuideIcons = {},               -- List of icon guide icon entries (fallback when PNG not generated)
+	  d12ImageUrl = nil,                 -- URL for the defense dice image
+
+  -- Dynamic dice data (loaded from API)
+  customDice = {},                   -- list of dice types from API
+
+  -- Classes data (loaded from API)
+  classes = {},                      -- raw array from API
+  classesByName = {},                -- lookup table: className -> classData
+  diceById = {},                     -- lookup table: diceId -> diceData
+
+  -- Runes data (loaded from API)
+  runes = {},                        -- raw array from API
+  runesById = {},                    -- lookup table: runeId -> runeData
+  runesByType = {                    -- lookup table: type -> list of runes
+    class = {},
+    origin = {}
+  },
+
+  -- Constants (can be overridden)
+  PLAYERMAT_POSITIONS = {
+    Red    = { pos = Vector(-30, 0.981, 17.5),  rot = Vector(0, 270, 0) },  -- top left
+    Blue   = { pos = Vector(-30, 0.981, -22.3), rot = Vector(0, 270, 0) },  -- bottom left
+    Orange = { pos = Vector(0, 0.981, -47.299), rot = Vector(0, 180, 0) },  -- bottom center
+    Green  = { pos = Vector(30, 0.981, -22.3),  rot = Vector(0, 90, 0) },   -- bottom right
+    Purple = { pos = Vector(30, 0.981, 17.5),   rot = Vector(0, 90, 0) },   -- top right
+    Yellow = { pos = Vector(0, 0.981, 42.5),    rot = Vector(0, 0, 0) }     -- top center
+  },
+
+  NAVIGATE_OPTIONS = {
+    "Astral Zone",
+    "Cyber City",
+    "Floral Patch",
+    "Fairy Oasis",
+    "Royal Gate",
+    "Canyon Light",
+    "Stay",
+    "Arcane Abyss",
+    "Depths of the Abyss"
+  },
+
+  MARKET_SPIRIT_POSITIONS = {
+    Vector(0, 1.28, 6.06),
+    Vector(5.25, 1.28, 3.03),
+    Vector(5.25, 1.28, -3.03),
+    Vector(0, 1.28, -6.06),
+    Vector(-5.25, 1.28, -3.03),
+    Vector(-5.25, 1.28, 3.03)
+  },
+
+  -- UI Constants
+  SIDE_BUTTON_HEIGHT = 200,
+  SIDE_BUTTON_WIDTH = 900,
+  SIDE_BUTTON_FONTSIZE = 100,
+  SIDE_BUTTON_SPACING = 25,
+
+  -- Dice configuration (DEPRECATED - now loaded from API)
+  -- DICE_OPTIONS = {
+  --   Archer = {
+  --     ["0"] = "0x Basic Attack",
+  --     ["1"] = "0x Basic Attack",
+  --     ["2"] = "1x Basic Attack",
+  --     ["3"] = "1x Basic Attack",
+  --     ["4"] = "2x Basic Attack",
+  --     ["5"] = "2x Basic Attack",
+  --     ["6"] = "3x Basic Attack",
+  --     ["7"] = "3x Basic Attack",
+  --     ["8"] = "4x Basic Attack",
+  --     ["9"] = "4x Basic Attack"
+  --   },
+  --   Sorcerer = {
+  --     ["0"] = "0x Arcane Attack",
+  --     ["1"] = "0x Arcane Attack",
+  --     ["2"] = "1x Arcane Attack",
+  --     ["3"] = "1x Arcane Attack",
+  --     ["4"] = "2x Arcane Attack",
+  --     ["5"] = "2x Arcane Attack",
+  --     ["6"] = "3x Arcane Attack",
+  --     ["7"] = "3x Arcane Attack",
+  --     ["8"] = "4x Arcane Attack",
+  --     ["9"] = "4x Arcane Attack"
+  --   },
+  --   Swordsman = {
+  --     ["0"] = "0x Critical Attack",
+  --     ["1"] = "0x Critical Attack",
+  --     ["2"] = "1x Critical Attack",
+  --     ["3"] = "1x Critical Attack",
+  --     ["4"] = "2x Critical Attack",
+  --     ["5"] = "2x Critical Attack",
+  --     ["6"] = "3x Critical Attack",
+  --     ["7"] = "3x Critical Attack",
+  --     ["8"] = "4x Critical Attack",
+  --     ["9"] = "4x Critical Attack"
+  --   }
+  -- }
+}
+
+-------------------------------------------------------------------------------
+-- Lookup Table Building
+-------------------------------------------------------------------------------
+
+-- Build lookup tables from loaded API data
+function GameState.buildLookups(classes, customDice, runes)
+  GameState.classes = classes or {}
+  GameState.customDice = customDice or {}
+  GameState.runes = runes or {}
+
+  -- Build classesByName lookup
+  GameState.classesByName = {}
+  for _, classData in ipairs(GameState.classes) do
+    GameState.classesByName[classData.name] = classData
+  end
+
+  -- Build diceById lookup
+  GameState.diceById = {}
+  for _, diceData in ipairs(GameState.customDice) do
+    GameState.diceById[diceData.id] = diceData
+  end
+
+  -- Build rune lookups
+  GameState.runesById = {}
+  GameState.runesByType = { class = {}, origin = {} }
+  for _, runeData in ipairs(GameState.runes) do
+    GameState.runesById[runeData.id] = runeData
+    local runeType = runeData.type or "class"
+    if not GameState.runesByType[runeType] then
+      GameState.runesByType[runeType] = {}
+    end
+    table.insert(GameState.runesByType[runeType], runeData)
+  end
+
+  if GameState.DEBUG_MODE then
+    print("[GameState] Built lookups: " .. #GameState.classes .. " classes, " .. #GameState.customDice .. " dice types, " .. #GameState.runes .. " runes")
+  end
+end
+
+-------------------------------------------------------------------------------
+-- Debug Logging
+-------------------------------------------------------------------------------
+
+--- Print a debug message (only if DEBUG_MODE is enabled)
+---@param message string The message to print
+function GameState.debugPrint(message)
+  if GameState.DEBUG_MODE then
+    print(message)
+  end
+end
+
+-------------------------------------------------------------------------------
+-- State Management Functions
+-------------------------------------------------------------------------------
+
+-- Save state to JSON for TTS save system
+	function GameState.serialize()
+	  return JSON.encode({
+    fresh = GameState.fresh,
+    gameStarted = GameState.gameStarted,
+    gameId = GameState.gameId,
+    navigationCount = GameState.navigationCount,
+    travelerRotationIndex = GameState.travelerRotationIndex,
+    travelerActiveId = GameState.travelerActiveId,
+    travelerActiveGuid = GameState.travelerActiveGuid,
+    selectedCharacters = GameState.selectedCharacters,
+    originDestinyActive = GameState.originDestinyActive,
+    -- Player-specific state (survives undo)
+    destinationPerPlayerColor = GameState.destinationPerPlayerColor,
+    traitSettingsPerPlayer = GameState.traitSettingsPerPlayer,
+    draw2Pick1Active = GameState.draw2Pick1Active,
+    playerResources = GameState.playerResources,
+    handDrawsThisNavigation = GameState.handDrawsThisNavigation,
+    -- Persist API lookup data to avoid re-fetching on reload
+    classes = GameState.classes,
+    customDice = GameState.customDice,
+    runes = GameState.runes,
+    characterMatData = GameState.characterMatData,
+    availableCharacters = GameState.availableCharacters,
+	    referenceSheetUrl = GameState.referenceSheetUrl,
+	    iconGuideUrl = GameState.iconGuideUrl,
+	    iconGuideIcons = GameState.iconGuideIcons,
+	    d12ImageUrl = GameState.d12ImageUrl,
+	    resourceIcons = GameState.resourceIcons,
+	    statusTokens = GameState.statusTokens,
+	    ttsMenu = GameState.ttsMenu
+	  })
+	end
+
+-- Load state from JSON
+function GameState.deserialize(saveData)
+  if saveData and saveData ~= "" then
+    local loadedData = JSON.decode(saveData)
+    GameState.fresh = loadedData.fresh
+    GameState.gameStarted = loadedData.gameStarted or false
+    GameState.gameId = loadedData.gameId
+    GameState.navigationCount = loadedData.navigationCount or 0
+    GameState.travelerRotationIndex = loadedData.travelerRotationIndex or 1
+    GameState.travelerActiveId = loadedData.travelerActiveId
+    GameState.travelerActiveGuid = loadedData.travelerActiveGuid
+    GameState.selectedCharacters = loadedData.selectedCharacters or {}
+    GameState.originDestinyActive = loadedData.originDestinyActive or {}
+    -- Restore player-specific state
+    GameState.destinationPerPlayerColor = loadedData.destinationPerPlayerColor or {}
+    GameState.traitSettingsPerPlayer = loadedData.traitSettingsPerPlayer or {}
+    GameState.draw2Pick1Active = loadedData.draw2Pick1Active or {}
+    GameState.playerResources = loadedData.playerResources or {}
+    GameState.handDrawsThisNavigation = loadedData.handDrawsThisNavigation or {}
+    for playerColor, _ in pairs(GameState.playerResources) do
+      ensurePlayerResourceDefaults(playerColor)
+    end
+
+    -- Restore API lookup data if saved
+    if loadedData.classes then
+      GameState.classes = loadedData.classes
+      GameState.customDice = loadedData.customDice or {}
+      GameState.runes = loadedData.runes or {}
+      GameState.characterMatData = loadedData.characterMatData or {}
+      GameState.availableCharacters = loadedData.availableCharacters or {}
+	      GameState.referenceSheetUrl = loadedData.referenceSheetUrl
+	      GameState.iconGuideUrl = loadedData.iconGuideUrl
+	      GameState.iconGuideIcons = loadedData.iconGuideIcons or {}
+	      GameState.d12ImageUrl = loadedData.d12ImageUrl
+	      GameState.resourceIcons = loadedData.resourceIcons or { blood = nil, victoryPoint = nil, barrier = nil }
+	      GameState.statusTokens = loadedData.statusTokens or {}
+	      GameState.ttsMenu = loadedData.ttsMenu or { backgroundUrl = nil }
+
+      -- Rebuild lookup tables from saved data
+      GameState.buildLookups(GameState.classes, GameState.customDice, GameState.runes)
+      GameState.debugPrint("[GameState] Restored " .. #GameState.classes .. " classes, " ..
+        #GameState.customDice .. " dice, " .. #GameState.runes .. " runes from save")
+    end
+  end
+end
+
+--- Check if API data has been cached (restored from save)
+--- Used to skip HTTP requests on undo/reload
+---@return boolean True if cached data is available
+function GameState.hasCachedData()
+  return GameState.classes and #GameState.classes > 0
+end
+
+--- Generate a unique game ID with current date/time
+--- Format: "game_YYYYMMDD_HHMMSS_XXXX" where XXXX is random
+---@return string The generated game ID
+function GameState.generateGameId()
+  local timestamp = os.date("!%Y%m%d_%H%M%S")
+  local random = string.format("%04x", math.random(0, 65535))
+  GameState.gameId = "game_" .. timestamp .. "_" .. random
+  GameState.debugPrint("[GameState] Generated gameId: " .. GameState.gameId)
+  return GameState.gameId
+end
+
+-------------------------------------------------------------------------------
+-- Player Resource Helpers
+-------------------------------------------------------------------------------
+
+local function ensurePlayerResourceDefaults(playerColor)
+  if not GameState.playerResources[playerColor] then
+    GameState.playerResources[playerColor] = {}
+  end
+
+  for key, value in pairs(GameState.DEFAULT_RESOURCES or {}) do
+    if GameState.playerResources[playerColor][key] == nil then
+      GameState.playerResources[playerColor][key] = value
+    end
+  end
+end
+
+--- Get a player's resource value
+---@param playerColor string The player color
+---@param key string The resource key ("blood", "victoryPoints", "barrier", or "status")
+---@return number The resource value (0 if not set)
+function GameState.getPlayerResource(playerColor, key)
+  if GameState.playerResources[playerColor] then
+    local value = GameState.playerResources[playerColor][key]
+    if value ~= nil then
+      return value
+    end
+  end
+  return (GameState.DEFAULT_RESOURCES and GameState.DEFAULT_RESOURCES[key]) or 0
+end
+
+--- Set a player's resource value
+---@param playerColor string The player color
+---@param key string The resource key ("blood" or "victoryPoints")
+---@param value number The new value
+function GameState.setPlayerResource(playerColor, key, value)
+  ensurePlayerResourceDefaults(playerColor)
+  GameState.playerResources[playerColor][key] = value
+end
+
+--- Initialize player resources if not already present
+---@param playerColor string The player color
+function GameState.initPlayerResources(playerColor)
+  ensurePlayerResourceDefaults(playerColor)
+end
+
+-- Reset to initial state (clears all state including API data)
+function GameState.resetToLobby()
+  GameState.fresh = true
+  GameState.gameStarted = false
+  GameState.gameId = nil
+  GameState.navigationCount = 0
+  GameState.travelerRotationIndex = 1
+  GameState.travelerActiveId = nil
+  GameState.travelerActiveGuid = nil
+  GameState.selectedCharacters = {}
+  GameState.availableCharacters = {}
+  GameState.characterMatData = {}
+  GameState.playAreaData = {}
+  GameState.destinationPerPlayerColor = {}
+  GameState.traitSettingsPerPlayer = {}
+  GameState.originDestinyActive = {}
+  GameState.draw2Pick1Active = {}
+  GameState.playerResources = {}
+  GameState.handDrawsThisNavigation = {}
+  GameState.classes = {}
+  GameState.classesByName = {}
+  GameState.customDice = {}
+  GameState.diceById = {}
+  GameState.runes = {}
+  GameState.runesById = {}
+  GameState.runesByType = { class = {}, origin = {} }
+	  GameState.referenceSheetUrl = nil
+	  GameState.iconGuideUrl = nil
+	  GameState.iconGuideIcons = {}
+	  GameState.d12ImageUrl = nil
+	  GameState.resourceIcons = { blood = nil, victoryPoint = nil, barrier = nil }
+	  GameState.statusTokens = {}
+	end
+
+return GameState

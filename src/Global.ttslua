@@ -1,0 +1,1403 @@
+-------------------------------------------------------------------------------
+-- Global.ttslua - Entry point for Arc Spirits TTS Mod
+-- This file coordinates all modules and handles TTS lifecycle events
+-------------------------------------------------------------------------------
+
+require("util/TtsLuaAdditions")
+
+-- Import all modules
+local GameState           = require("state/GameState")
+local SupabaseLib         = require("api/SupabaseLib")
+local SpawnLib            = require("util/SpawnLib")
+local UtilLib             = require("util/UtilLib")
+local UILib               = require("ui/UILib")
+local DiceLib             = require("game/DiceLib")
+local TraitLib            = require("game/TraitLib")
+local MarketLib           = require("game/MarketLib")
+local NavigationLib       = require("game/NavigationLib")
+local CharacterSelectLib  = require("game/CharacterSelectLib")
+local TravelerLib         = require("game/TravelerLib")
+local TableLib            = require("util/TableLib")
+local PlayerMatLib        = require("game/PlayerMatLib")
+local AssetLoaderLib      = require("api/AssetLoaderLib")
+local GlobalUI            = require("ui/GlobalUI")
+local ResourceTrackerUI   = require("ui/ResourceTrackerUI")
+local ObjectTemplateLib   = require("util/ObjectTemplateLib")
+
+-------------------------------------------------------------------------------
+-- MARK: TTS Lifecycle Events
+-------------------------------------------------------------------------------
+
+function onSave()
+  return GameState.serialize()
+end
+
+function onLoad(saveData)
+  GameState.debugPrint("[Global] onLoad started (gameStarted=" .. tostring(GameState.gameStarted) .. ")")
+  GameState.deserialize(saveData)
+  drawPlayAreas()
+
+  -- Ensure spirit bags are the same standard Bag object as other spawned bags
+  -- (Custom_Model_Bag meshes can sometimes fail to render and appear invisible)
+  Wait.frames(function()
+    AssetLoaderLib.ensureStandardSpiritBags()
+  end, 1)
+
+  if GameState.gameStarted then
+    if GameState.hasCachedData() then
+      GameState.debugPrint("[Global] Cache detected - using cached data (skipping HTTP)")
+      onCachedReload()
+    else
+      GameState.debugPrint("[Global] No cache found - fetching assets from API")
+      getAssetData()
+    end
+  else
+    GameState.debugPrint("[Global] Lobby mode - fetching assets from API")
+    initializeLobby()
+  end
+end
+
+function initializeLobby()
+  getAssetData()
+end
+
+--- Fast reload path when cached data is available (undo/reload)
+--- Skips HTTP request and redundant data processing
+function onCachedReload()
+  GameState.debugPrint("[Global] Using cached data for reload (skipping HTTP)")
+
+  -- Rebuild UI (required - TTS may destroy XML on undo)
+  UILib.createGlobalXml()
+
+  -- Update navigation
+  Wait.frames(function()
+    NavigationLib.updateRealmNavigator()
+  end, 5)
+
+  -- Rebuild game references (mats, buttons, spirits)
+  rebuildGameReferences()
+end
+
+function destroyAllGameObjects()
+  local tagsToDestroy = {
+    "Playermat", "PlayerFigurine", "HexSpirit", "OriginDestiny",
+    "ArcaneSpirit", "SpecialSpirit", "Barrier", "Status", "Rune",
+    "SpiritContainer", "Die", "Artifact", "Monster", "Traveler", "TravelerQuest", "TravelerButton", "Icon",
+    "ArcaneAdvisor", "NotInteractable", "TokenBag", "GameToken"
+  }
+  for _, tag in ipairs(tagsToDestroy) do
+    for _, obj in ipairs(getObjectsWithTag(tag)) do
+      obj.destruct()
+    end
+  end
+
+  local bagsToDestroy = {
+    "Spirit World Bag", "Abyss Fallen Spirits", "Arcane Spirits", "Hex Spirits (Special)", "Origin Destiny",
+    "Artifacts (Basic)", "Artifacts (Guardian)", "Artifacts (Other)",
+    "Monsters", "Travelers", "Traveler Quests", "Icons", "Runes", "SpiritWorld",
+    "Spirit World Spirits", "Hex Spirits", "Sealed Spirits", "Hex Spirits (Ancient)"
+  }
+  for _, bagName in ipairs(bagsToDestroy) do
+    local bag = UtilLib.getObjectByName(bagName)
+    if bag then bag.destruct() end
+  end
+end
+
+-------------------------------------------------------------------------------
+-- MARK: Traveler Swap Button (board)
+-------------------------------------------------------------------------------
+
+local TRAVELER_SWAP_BUTTON_NAME = "Traveler Swap"
+local TRAVELER_SWAP_BUTTON_POS = Vector(-18.54, 1.14, 38.78)
+local TRAVELER_SWAP_BUTTON_ROT = Vector(357.4, 180, 0)
+
+local function setupTravelerSwapButton(obj)
+  if not obj or obj.isDestroyed() then
+    return
+  end
+
+  obj.clearButtons()
+  obj.createButton({
+    label = "Next\nTraveler",
+    click_function = "swapTravelerCard",
+    function_owner = self,
+    position = Vector(0, 0.2, 0),
+    width = 850,
+    height = 850,
+    font_size = 120,
+    color = { 0.1, 0.1, 0.1, 0.95 },
+    font_color = { 1, 1, 1, 1 },
+    tooltip = "Advance the active Traveler card"
+  })
+end
+
+function ensureTravelerSwapButton()
+  if not GameState.gameStarted then
+    return
+  end
+
+  local existing = UtilLib.getObjectByName(TRAVELER_SWAP_BUTTON_NAME)
+  if existing then
+    setupTravelerSwapButton(existing)
+    return
+  end
+
+  local icon = SupabaseLib.getIconByName("draw_spirit_bag")
+  local imageUrl = icon and icon.image_url or ""
+
+  local data = ObjectTemplateLib.getTemplate("Tile")
+  data.Nickname = TRAVELER_SWAP_BUTTON_NAME
+  data.Locked = true
+  data.Tags = { "TravelerButton" }
+  data.ColorDiffuse = { r = 0, g = 0, b = 0 }
+  data.CustomImage.ImageURL = imageUrl
+  data.CustomImage.CustomTile.Type = 2
+  data.CustomImage.CustomTile.Thickness = 0.2
+
+  data.Transform.posX = TRAVELER_SWAP_BUTTON_POS.x
+  data.Transform.posY = TRAVELER_SWAP_BUTTON_POS.y
+  data.Transform.posZ = TRAVELER_SWAP_BUTTON_POS.z
+  data.Transform.rotX = TRAVELER_SWAP_BUTTON_ROT.x
+  data.Transform.rotY = TRAVELER_SWAP_BUTTON_ROT.y
+  data.Transform.rotZ = TRAVELER_SWAP_BUTTON_ROT.z
+  data.Transform.scaleX = 1.2
+  data.Transform.scaleY = 1
+  data.Transform.scaleZ = 1.2
+
+  spawnObjectData({
+    data = data,
+    callback_function = function(obj)
+      setupTravelerSwapButton(obj)
+    end
+  })
+end
+
+function swapTravelerCard(_, playerColor)
+  TravelerLib.advanceTraveler()
+  if playerColor then
+    broadcastToColor("Traveler advanced.", playerColor, "Green")
+  end
+end
+
+--- Rebuild game references after loading a saved game
+--- Re-registers existing player mats when gameStarted = true (objects already exist from TTS save)
+function rebuildGameReferences()
+  if not GameState.gameStarted then return end
+
+	Wait.frames(function()
+	  GameState.debugPrint("[Global] Rebuilding game references from saved game...")
+	  AssetLoaderLib.ensureIconGuideBag(GameState.iconGuideUrl, GameState.iconGuideIcons)
+	  local registeredCount = 0
+	  for playerColor, charName in pairs(GameState.selectedCharacters or {}) do
+	    for _, obj in ipairs(getObjectsWithTag("Playermat")) do
+	      if obj.getName() == charName then
+          PlayerMatLib.registerPlayerMat(playerColor, obj)
+          registeredCount = registeredCount + 1
+
+          -- Recreate native TTS buttons (destroyed on undo)
+          UILib.setupRuneSlotsOnMat(obj, playerColor)
+
+          -- Rescan spirits on the mat using snap positions
+          PlayerMatLib.rescanSpirits(playerColor)
+          updateOriginDestinyState(playerColor)
+          UILib.updatePlayerUI(playerColor)
+          break
+        end
+      end
+    end
+    GameState.debugPrint("[Global] Registered " .. registeredCount .. " player mats")
+    TravelerLib.ensureTravelerOnBoard()
+    ensureTravelerSwapButton()
+  end, 5)
+end
+
+function onObjectSpawn(obj)
+  if obj.hasTag("SpiritContainer") then
+    addMarketButton(obj)
+  elseif obj.getName() == "SpiritWorld" then
+    addMapTooltips(obj)
+    queueUIRefreshButtonPlacement()
+  elseif obj.hasTag("TokenBag") then
+    queueUIRefreshButtonPlacement()
+  end
+end
+
+function onObjectDrop(playerColor, obj)
+  -- Wait for physics to settle and object to snap before checking position
+  Wait.frames(function()
+    if not obj or obj.getGUID() == nil then return end
+
+    local objPos = obj.getPosition()
+    local objRot = obj.getRotation()
+    if GameState.DEBUG_MODE and GameState.DEBUG_DROP_LOGGING then
+      local name = obj.getName() or "Unknown"
+      local guid = obj.getGUID() or "Unknown"
+      local message = string.format(
+        "[Drop] %s (%s) pos=%.2f, %.2f, %.2f rot=%.1f, %.1f, %.1f",
+        name, guid, objPos.x, objPos.y, objPos.z, objRot.x, objRot.y, objRot.z
+      )
+      if playerColor then
+        printToColor(message, playerColor, "White")
+      else
+        print(message)
+      end
+    end
+    local matColor = PlayerMatLib.findPlayerColorForPosition(objPos)
+
+    -- Handle spirit tracking with snap-based detection
+    if obj.hasTag("HexSpirit") and matColor then
+      -- Rescan all spirit slots to get accurate state after snap
+      PlayerMatLib.rescanSpirits(matColor)
+      updateOriginDestinyState(matColor)
+    end
+  end, 15)  -- Wait 15 frames for physics to settle and snap
+end
+
+function onObjectPickUp(playerColor, obj)
+  local objPos = obj.getPosition()
+  local matColor = PlayerMatLib.findPlayerColorForPosition(objPos)
+
+  -- Handle spirit pickup - rescan after a delay
+  if obj.hasTag("HexSpirit") and matColor then
+    -- Delay rescan until after the object is gone from the slot
+    Wait.frames(function()
+      PlayerMatLib.rescanSpirits(matColor)
+      updateOriginDestinyState(matColor)
+    end, 5)
+  end
+end
+
+function onObjectEnterContainer(container, obj)
+  -- Reshuffle spirit bags when a spirit is placed into them
+  local containerName = container.getName()
+  if (containerName == "Spirit World Bag" or containerName == "Abyss Fallen Spirits") and obj.hasTag("HexSpirit") then
+    -- Small delay to ensure the object is fully in the container before shuffling
+    Wait.frames(function()
+      if container and container.getGUID() then
+        container.shuffle()
+      end
+    end, 5)
+  end
+end
+
+function onPlayerConnect(player)
+  -- Re-send UI for late joiners/reconnects (TTS can fail to render UI on some clients)
+  AssetLoaderLib.waitForUIAssetsLoaded(function()
+    UILib.createGlobalXml()
+    NavigationLib.updateRealmNavigator()
+  end)
+end
+
+function onPlayerDisconnect(player)
+  -- Update realm navigator when a player leaves
+  NavigationLib.updateRealmNavigator()
+end
+
+function onPlayerChangeColor(playerColor)
+  -- Re-send UI when a player re-seats (ensures per-color visibility panels appear)
+  AssetLoaderLib.waitForUIAssetsLoaded(function()
+    UILib.createGlobalXml()
+    NavigationLib.updateRealmNavigator()
+  end)
+end
+
+-------------------------------------------------------------------------------
+-- MARK: Asset Loading
+-------------------------------------------------------------------------------
+
+function getAssetData()
+  SupabaseLib.setOnLoadComplete(onAssetLoadComplete)
+  SupabaseLib.loadAssets()
+end
+
+function onAssetLoadComplete(data)
+  -- Build lookup tables
+  GameState.buildLookups(data.classes, data.customDice, data.runes)
+
+  -- Build character data
+  GameState.availableCharacters, GameState.characterMatData = SupabaseLib.buildCharacterData()
+
+  -- Store TTS menu data (character select background)
+	  local ttsMenu = SupabaseLib.getTtsMenu()
+	  GameState.ttsMenu.backgroundUrl = ttsMenu.backgroundUrl
+	  GameState.iconGuideUrl = data.iconGuideUrl
+	  GameState.iconGuideIcons = data.iconGuideIcons or {}
+	  GameState.statusTokens = SupabaseLib.getStatusTokensByLevel()
+	  local d12Icon = SupabaseLib.getIconByName("d12")
+	  GameState.d12ImageUrl = d12Icon and d12Icon.image_url or nil
+
+  -- Set resource icons before UI creation
+  AssetLoaderLib.setResourceIcons(data.tokens)
+
+  if not GameState.gameStarted then
+    -- LOBBY FLOW:
+    -- 1) Preload character select UI art first
+    -- 2) Show character select UI
+    -- 3) Preload the rest of the graphics in the background
+    local lobbyImageCount = AssetLoaderLib.preloadCharacterSelectImages(data)
+    broadcastToAll("Preloading character select UI (" .. lobbyImageCount .. " images)...", {0.7, 0.85, 1})
+
+    AssetLoaderLib.waitForUIAssetsLoaded(function()
+      -- Mark as no longer fresh
+      GameState.fresh = false
+
+      -- Show UI as soon as lobby art is ready
+      UILib.createGlobalXml()
+
+      -- Initialize navigation
+      Wait.frames(function()
+        NavigationLib.updateRealmNavigator()
+      end, 5)
+
+      -- Start background preload of everything else (keeps character select assets registered)
+      Wait.frames(function()
+        local allImageCount = AssetLoaderLib.preloadAllImages(data)
+        local remaining = allImageCount - lobbyImageCount
+        if remaining < 0 then remaining = allImageCount end
+        broadcastToAll("Preloading remaining " .. remaining .. " images...", {0.7, 0.85, 1})
+      end, 1)
+    end)
+
+    return
+  end
+
+  -- STARTED FLOW: Preload ALL images before showing full UI
+  local imageCount = AssetLoaderLib.preloadAllImages(data)
+  broadcastToAll("Preloading " .. imageCount .. " images...", {0.7, 0.85, 1})
+
+  -- Wait for UI assets to finish loading, THEN create the UI
+  AssetLoaderLib.waitForUIAssetsLoaded(function()
+    broadcastToAll("Images loaded! Displaying UI...", {0.5, 1, 0.5})
+
+    -- Mark as no longer fresh
+    GameState.fresh = false
+
+    -- Create UI now that ALL images are preloaded
+    UILib.createGlobalXml()
+
+    -- Initialize navigation
+    Wait.frames(function()
+      NavigationLib.updateRealmNavigator()
+    end, 5)
+
+    -- If game already started, rebuild references to existing objects (saved by TTS)
+    if GameState.gameStarted then
+      rebuildGameReferences()
+    end
+  end)
+end
+
+-------------------------------------------------------------------------------
+-- MARK: Object Setup (buttons, tooltips)
+-- NOTE: Reserve update functions moved to AssetLoaderLib.ttslua
+-------------------------------------------------------------------------------
+
+function addMarketButton(obj)
+  obj.createButton({
+    label          = "Refill",
+    click_function = "refillSpirits",
+    function_owner = self,
+    position       = Vector(0, 0.1, -1),
+    width          = 300,
+    height         = 100,
+    font_size      = 80
+  })
+end
+
+function addMapTooltips(obj)
+  local WORLD_POSITIONS = {
+    { name = "Astral Zone",   pos = Vector(-6.7, 0.5, -12.7) },
+    { name = "Cyber City",    pos = Vector(-5.1, 0.5, 16.2) },
+    { name = "Floral Patch",  pos = Vector(14.2, 0.5, 1.7) },
+    { name = "Fairy Oasis",   pos = Vector(-14.8, 0.5, 2.9) },
+    { name = "Royal Gate",    pos = Vector(-19.3, 0.5, -9.6) },
+    { name = "Canyon Light",  pos = Vector(20.7, 0.5, -7.3) },
+    { name = "Arcane Abyss",  pos = Vector(0, 0.5, 2.1) }
+  }
+
+  for idx, location in ipairs(WORLD_POSITIONS) do
+    local localPos = obj.positionToLocal(location.pos)
+    obj.createButton({
+      label          = "",
+      click_function = "none",
+      function_owner = self,
+      position       = localPos,
+      width          = 0,
+      height         = 0,
+      font_size      = 1,
+      tooltip        = location.name
+    })
+  end
+end
+
+local function objectHasButtonClickFunction(obj, clickFunction)
+  local buttons = obj.getButtons()
+  if not buttons then return false end
+
+  for _, button in ipairs(buttons) do
+    if button.click_function == clickFunction then
+      return true
+    end
+  end
+
+  return false
+end
+
+local function removeButtonsWithClickFunction(obj, clickFunction)
+  local buttons = obj.getButtons()
+  if not buttons then return end
+
+  -- removeButton uses 0-based indices, so iterate backwards
+  for i = #buttons, 1, -1 do
+    if buttons[i].click_function == clickFunction then
+      obj.removeButton(i - 1)
+    end
+  end
+end
+
+function addUIRefreshButton(obj, localPos)
+  if objectHasButtonClickFunction(obj, "refreshUIForAllPlayers") then return end
+
+  obj.createButton({
+    label          = "Refresh UI",
+    click_function = "refreshUIForAllPlayers",
+    function_owner = self,
+    position       = localPos or Vector(0.45, 0.2, 0.45),
+    width          = 600,
+    height         = 140,
+    font_size      = 90,
+    font_color     = { 1, 1, 1, 1 },
+    color          = { 0.15, 0.15, 0.2, 0.9 },
+    hover_color    = { 0.25, 0.25, 0.35, 0.95 },
+    press_color    = { 0.1, 0.1, 0.15, 1 },
+    tooltip        = "Re-sends the XML UI to all seated players."
+  })
+end
+
+local UI_REFRESH_TOKENBAG_OFFSET_Y = 0.15
+local UI_REFRESH_TOKENBAG_OFFSET_Z = -5
+local uiRefreshButtonQueued = false
+
+function queueUIRefreshButtonPlacement()
+  if uiRefreshButtonQueued then return end
+  uiRefreshButtonQueued = true
+
+  Wait.frames(function()
+    uiRefreshButtonQueued = false
+
+    local tokenBags = getObjectsWithTag("TokenBag") or {}
+    if #tokenBags == 0 then return end
+
+    -- Remove any legacy refresh buttons from SpiritWorld (older saves) and token bags (avoid duplicates)
+    local spiritWorld = UtilLib.getObjectByName("SpiritWorld")
+    if spiritWorld then
+      removeButtonsWithClickFunction(spiritWorld, "refreshUIForAllPlayers")
+    end
+    for _, bag in ipairs(tokenBags) do
+      removeButtonsWithClickFunction(bag, "refreshUIForAllPlayers")
+    end
+
+    -- Compute center of token bag row (world-space)
+    local sumX, sumY, sumZ = 0, 0, 0
+    for _, bag in ipairs(tokenBags) do
+      local p = bag.getPosition()
+      sumX = sumX + p.x
+      sumY = sumY + p.y
+      sumZ = sumZ + p.z
+    end
+    local centerPos = Vector(sumX / #tokenBags, sumY / #tokenBags, sumZ / #tokenBags)
+    local desiredWorldPos = Vector(centerPos.x, centerPos.y + UI_REFRESH_TOKENBAG_OFFSET_Y, centerPos.z + UI_REFRESH_TOKENBAG_OFFSET_Z)
+
+    -- Anchor the button to the token bag closest to center so the local coordinate stays small/stable.
+    local anchor = tokenBags[1]
+    local bestDist = math.huge
+    for _, bag in ipairs(tokenBags) do
+      local p = bag.getPosition()
+      local dx = p.x - centerPos.x
+      local dz = p.z - centerPos.z
+      local dist = dx * dx + dz * dz
+      if dist < bestDist then
+        bestDist = dist
+        anchor = bag
+      end
+    end
+
+    addUIRefreshButton(anchor, anchor.positionToLocal(desiredWorldPos))
+  end, 10)
+end
+
+function refreshUIForAllPlayers(_, playerColor)
+  -- Allow anyone to press the button, but only seated colors should have UI panels.
+  if playerColor and playerColor ~= "Grey" and not Player[playerColor].seated then
+    broadcastToColor("Sit in a seat to use Refresh UI.", playerColor, Color.Orange)
+    return
+  end
+
+  if playerColor and playerColor ~= "Grey" then
+    broadcastToColor("Refreshing UI for all seated players...", playerColor, { 0.7, 0.85, 1 })
+  else
+    broadcastToAll("Refreshing UI for all seated players...", { 0.7, 0.85, 1 })
+  end
+
+  AssetLoaderLib.waitForUIAssetsLoaded(function()
+    UILib.createGlobalXml()
+    NavigationLib.updateRealmNavigator()
+    GlobalUI.updateAllNavigatorResources()
+  end)
+end
+
+-------------------------------------------------------------------------------
+-- MARK: XML UI Callbacks (delegated to modules)
+-------------------------------------------------------------------------------
+
+-- Draw/Summon callbacks
+local function drawSummonFromBag(player, bagName, bagLabel, drawCount, summonCount)
+  local playerColor = player.color
+
+  local bag = getObjectByName(bagName)
+  if not bag then
+    broadcastToColor(bagLabel .. " bag not found!", playerColor, "Red")
+    return
+  end
+
+  local bagCount = bag.getQuantity()
+  if bagCount < drawCount then
+    broadcastToColor("Not enough spirits in the bag! (Need " .. drawCount .. ", have " .. bagCount .. ")", playerColor, "Red")
+    return
+  end
+
+  bag.shuffle()
+
+  -- Draw spirits to player's hand with a slight delay to prevent stacking
+  for i = 1, drawCount do
+    Wait.time(function()
+      local obj = bag.takeObject({})
+      if obj then
+        if obj.hasTag("HexSpirit") then
+          local metadata = UtilLib.getMetadata(obj.getGMNotes())
+          GameState.handDrawsThisNavigation[playerColor] = GameState.handDrawsThisNavigation[playerColor] or {}
+          table.insert(GameState.handDrawsThisNavigation[playerColor], {
+            guid = obj.getGUID(),
+            id = metadata.id,
+            name = obj.getName(),
+            cost = metadata.cost,
+            sourceBag = bagName
+          })
+        end
+
+        Wait.frames(function()
+          obj.deal(1, playerColor)
+        end, 5)
+      end
+    end, (i - 1) * 0.3)
+  end
+
+  local discardCount = math.max(0, drawCount - (summonCount or 0))
+  broadcastToColor(
+    "Drew " .. drawCount .. " spirits from " .. bagLabel .. ". Summon " .. summonCount .. ", discard " .. discardCount .. " to the Spirit World Bag.",
+    playerColor,
+    "Green"
+  )
+end
+
+function xml_draw2Pick1(player)
+  drawSummonFromBag(player, "Spirit World Bag", "Spirit World", 4, 2)
+end
+
+function xml_draw4Pick1Sealed(player)
+  drawSummonFromBag(player, "Abyss Fallen Spirits", "Abyss Fallen", 3, 1)
+end
+
+-- Return All Spirits to Bag callback
+-- Returns spirits in players' hands to the Spirit World Bag (discard pile)
+function xml_returnAllSpirits(player)
+  local playerColor = player.color
+
+  local spiritWorldBag = getObjectByName("Spirit World Bag")
+  if not spiritWorldBag then
+    broadcastToColor("Spirit World Bag not found!", playerColor, "Red")
+    return
+  end
+
+  -- Get all objects in the player's hand
+  local handObjects = Player[playerColor].getHandObjects()
+  local returnedCount = 0
+  local returnedAnyHexSpirits = false
+
+  local trackedGuids = nil
+  local tracked = GameState.handDrawsThisNavigation and GameState.handDrawsThisNavigation[playerColor] or nil
+  if tracked and #tracked > 0 then
+    trackedGuids = {}
+    for _, entry in ipairs(tracked) do
+      if entry and entry.guid then
+        trackedGuids[entry.guid] = true
+      end
+    end
+  end
+
+  for _, obj in ipairs(handObjects) do
+    -- Check if object has HexSpirit tag
+    if obj.hasTag("HexSpirit") and not obj.isDestroyed() then
+      returnedAnyHexSpirits = true
+      if not trackedGuids or trackedGuids[obj.getGUID()] then
+        spiritWorldBag.putObject(obj)
+        returnedCount = returnedCount + 1
+      end
+    end
+  end
+
+  -- If we had tracked draws but none matched what's actually in hand, fall back to returning all hex spirits.
+  if returnedCount == 0 and returnedAnyHexSpirits and trackedGuids then
+    for _, obj in ipairs(handObjects) do
+      if obj.hasTag("HexSpirit") and not obj.isDestroyed() then
+        spiritWorldBag.putObject(obj)
+        returnedCount = returnedCount + 1
+      end
+    end
+  end
+
+  if returnedCount > 0 then
+    Wait.frames(function()
+      if spiritWorldBag and spiritWorldBag.getGUID() then
+        spiritWorldBag.shuffle()
+      end
+    end, 5)
+
+    broadcastToColor("Discarded " .. returnedCount .. " spirit(s) to the Spirit World Bag.", playerColor, "Green")
+  else
+    broadcastToColor("No spirits in your hand to discard.", playerColor, "Orange")
+  end
+end
+
+-- Reference callbacks
+function xml_showReference(player)
+  UILib.showReference(player)
+end
+
+function xml_closeReference(player)
+  UILib.closeReference(player)
+end
+
+-- Tooltip callbacks
+function xml_onHover(player, guid, panelId)
+  UILib.onHover(player, guid, panelId)
+end
+
+function xml_onExit(player, guid, panelId)
+  UILib.onExit(player, guid, panelId)
+end
+
+-- Character selection callbacks
+function xml_selectCharacter(player, value, id)
+  if CharacterSelectLib.selectCharacter(player, value, id) then
+    UILib.createGlobalXml()
+  end
+end
+
+function xml_startGame(player)
+  if CharacterSelectLib.startGame(player) then
+    UILib.createGlobalXml()
+    Wait.frames(function()
+      ensureTravelerSwapButton()
+    end, 20)
+  end
+end
+
+-- Debug panel callbacks
+function xml_showDebugPanel(player)
+  UILib.showDebugPanel(player)
+end
+
+function xml_closeDebugPanel(player)
+  UILib.closeDebugPanel(player)
+end
+
+function xml_resetGame(player)
+  broadcastToAll("Resetting game...", Color.Orange)
+  destroyAllGameObjects()
+  GameState.resetToLobby()
+
+  Wait.frames(function()
+    initializeLobby()
+    broadcastToAll("Game reset. Select characters to start.", Color.Green)
+  end, 10)
+end
+
+-- Class Breakpoints panel callbacks
+function xml_showClassBreakpoints(player, value, id)
+  -- Extract class name from the id parameter (format: playerColor_class_ClassName)
+  local className = id:match("_class_(.+)$") or id
+  UILib.toggleClassBreakpoints(player, className)
+end
+
+function xml_closeClassBreakpoints(player)
+  UILib.closeClassBreakpoints(player)
+end
+
+-- Special Classes toggle callback
+-- Track expanded state per player
+local specialClassesExpanded = {}
+
+function xml_toggleSpecialClasses(player)
+  local playerColor = player.color
+  specialClassesExpanded[playerColor] = not specialClassesExpanded[playerColor]
+  local isExpanded = specialClassesExpanded[playerColor]
+
+  -- Toggle panel visibility
+  UI.setAttribute(playerColor .. "_special_classes_panel", "active", isExpanded)
+
+  -- Update button label
+  local label = isExpanded and "Special Classes ▲" or "Special Classes ▼"
+  UI.setAttribute(playerColor .. "_special_classes_label", "text", label)
+end
+
+-- Rune Selector callbacks
+-- Called from native TTS button on playermat
+function onRuneSlotClick(obj, playerColor, alt_click)
+  local player = Player[playerColor]
+  if not player then return end
+
+  -- For now, open slot 1 - individual slot functions handle specific slots
+  UILib.openRuneSelector(player, 1)
+end
+
+-- Individual slot click handlers
+function onRuneSlot1Click(obj, playerColor) UILib.openRuneSelector(Player[playerColor], 1) end
+function onRuneSlot2Click(obj, playerColor) UILib.openRuneSelector(Player[playerColor], 2) end
+function onRuneSlot3Click(obj, playerColor) UILib.openRuneSelector(Player[playerColor], 3) end
+function onRuneSlot4Click(obj, playerColor) UILib.openRuneSelector(Player[playerColor], 4) end
+
+-- XML UI callback (kept for compatibility)
+function xml_openRuneSelector(player, value, id)
+  local slotIndex = tonumber(id:match("runeslot_(%d+)"))
+  if slotIndex then
+    UILib.openRuneSelector(player, slotIndex)
+  end
+end
+
+function xml_closeRuneSelector(player)
+  UILib.closeRuneSelector(player)
+end
+
+function xml_selectRune(player, value, id)
+  -- Extract rune ID from the id parameter (format: playerColor_runeselect_runeId)
+  local runeId = id:match("_runeselect_(.+)$")
+  if runeId then
+    UILib.selectRune(player, runeId)
+  end
+end
+
+-- Dice Spawner callbacks
+function xml_showDiceSpawner(player)
+  UILib.showDiceSpawner(player)
+end
+
+function xml_closeDiceSpawner(player)
+  UILib.closeDiceSpawner(player)
+end
+
+function xml_dicePlus(player, value, id)
+  -- Extract dice ID from the id parameter (format: playerColor_dice_plus_diceId)
+  local diceId = id:match("_dice_plus_(.+)$")
+  if diceId then
+    UILib.adjustDiceCount(player, diceId, 1)
+  end
+end
+
+function xml_diceMinus(player, value, id)
+  -- Extract dice ID from the id parameter (format: playerColor_dice_minus_diceId)
+  local diceId = id:match("_dice_minus_(.+)$")
+  if diceId then
+    UILib.adjustDiceCount(player, diceId, -1)
+  end
+end
+
+function xml_spawnSelectedDice(player)
+  UILib.spawnSelectedDice(player)
+end
+
+-- Navigation callbacks
+function xml_navigateRealm(player)
+  NavigationLib.navigateRealm(player)
+end
+
+function xml_selectDestination(player, value, id)
+  local playerColor = player.color
+  -- Extract option index from button id (format: "playerColor_nav_option_N")
+  local optionIndex = tonumber(id:match("_nav_option_(%d+)$"))
+  if optionIndex then
+    NavigationLib.selectDestination(playerColor, optionIndex)
+  end
+end
+
+-- XML UI callback for canceling navigation selection
+function xml_cancelNavigation(player, value, id)
+  local playerColor = player.color
+  NavigationLib.closeNavigationSelector(playerColor)
+end
+
+function navigateRealmCallback(selectedDestination, _, playerColor)
+  NavigationLib.navigateRealmCallback(selectedDestination, _, playerColor)
+end
+
+-- Resource tracker callbacks (Blood, Victory Points, and Barriers)
+function xml_adjustResource(player, value, id)
+  local playerColor = player.color
+
+  -- Parse the button ID to determine resource type and action
+  -- Format: "playerColor_resourceType_action" (e.g., "Red_blood_plus")
+  local parts = {}
+  for part in id:gmatch("[^_]+") do
+    table.insert(parts, part)
+  end
+
+  if #parts >= 3 then
+    local resourceType = parts[2]  -- "blood", "vp", "barrier", or "status"
+    local action = parts[3]        -- "plus" or "minus"
+    local delta = (action == "plus") and 1 or -1
+
+    if resourceType == "blood" then
+      PlayerMatLib.adjustBlood(playerColor, delta)
+      ResourceTrackerUI.updateCount(playerColor, "blood", PlayerMatLib.getBlood(playerColor))
+      GlobalUI.updateNavigatorResources(playerColor)
+    elseif resourceType == "vp" then
+      PlayerMatLib.adjustVictoryPoints(playerColor, delta)
+      ResourceTrackerUI.updateCount(playerColor, "vp", PlayerMatLib.getVictoryPoints(playerColor))
+      GlobalUI.updateNavigatorResources(playerColor)
+    elseif resourceType == "barrier" then
+      PlayerMatLib.adjustBarrier(playerColor, delta)
+      ResourceTrackerUI.updateCount(playerColor, "barrier", PlayerMatLib.getBarrier(playerColor))
+    elseif resourceType == "status" then
+      PlayerMatLib.adjustStatus(playerColor, delta)
+      ResourceTrackerUI.updateStatus(playerColor)
+      CharacterSelectLib.updateStatusToken(playerColor)
+    end
+  end
+end
+
+-------------------------------------------------------------------------------
+-- MARK: Market Callbacks (delegated to MarketLib)
+-------------------------------------------------------------------------------
+
+function refillSpirits(_, playerColor)
+  MarketLib.refillSpirits(_, playerColor)
+end
+
+-------------------------------------------------------------------------------
+-- MARK: Play Area Drawing (Debug)
+-------------------------------------------------------------------------------
+
+function drawPlayAreas()
+  for _, playerColor in ipairs(Player.getAvailableColors()) do
+    local handData = Player[playerColor].getHandTransform()
+    if handData then
+      local boxCenter = handData.position + handData.forward * 22.7 + handData.right * 12.15
+
+      local size = handData.forward * 13.5 + handData.right * 16
+      GameState.playAreaData[playerColor] = {
+        center = boxCenter:setAt("y", 1),
+        size   = Vector(math.abs(size.x), 10, math.abs(size.z))
+      }
+    end
+  end
+end
+
+function drawBox(linesTable, center, forwardVector, rightVector, width, length, color, thickness)
+  -- Calculate the four corners of the box relative to the center
+  local p1 = center + (rightVector * width / 2) + (forwardVector * length / 2)
+  local p2 = center + (rightVector * width / 2) - (forwardVector * length / 2)
+  local p3 = center - (rightVector * width / 2) - (forwardVector * length / 2)
+  local p4 = center - (rightVector * width / 2) + (forwardVector * length / 2)
+
+  -- Insert the lines into the provided table
+  table.insert(linesTable, { points = { p1, p2 }, color = color, thickness = thickness })
+  table.insert(linesTable, { points = { p2, p3 }, color = color, thickness = thickness })
+  table.insert(linesTable, { points = { p3, p4 }, color = color, thickness = thickness })
+  table.insert(linesTable, { points = { p4, p1 }, color = color, thickness = thickness })
+end
+
+-------------------------------------------------------------------------------
+-- MARK: UI Update Callbacks
+-------------------------------------------------------------------------------
+
+-- Callback function for PlayerMatLib to trigger UI updates
+function updatePlayerUICallback(playerColor)
+  UILib.updatePlayerUI(playerColor)
+end
+
+--- Update origin destiny activation state for a player
+--- Called whenever spirits or origin destiny tokens change on the mat
+function updateOriginDestinyState(playerColor)
+  local destinyState = PlayerMatLib.checkOriginDestinyActivation(playerColor)
+
+  local prevState = GameState.originDestinyActive[playerColor]
+  local wasActivated = prevState and prevState.activated
+  local wasCompleted = prevState and prevState.completed
+  local hadDestiny = prevState ~= nil
+
+  if destinyState then
+    -- Origin destiny is on the mat
+    GameState.originDestinyActive[playerColor] = {
+      activated = destinyState.activated,
+      originName = destinyState.originName,
+      uniqueCount = destinyState.uniqueCount,
+      completed = destinyState.completed
+    }
+
+    -- Check for COMPLETION (6 unique spirits) - trigger Spirit Fusion!
+    if destinyState.completed and not wasCompleted then
+      triggerSpiritFusion(playerColor, destinyState)
+      return -- Spirit Fusion will handle the rest
+    elseif destinyState.activated and not wasActivated then
+      broadcastToColor("Origin Destiny ACTIVATED! (" .. destinyState.originName .. ")", playerColor, "Green")
+    elseif not destinyState.activated and not hadDestiny then
+      broadcastToColor("Origin Destiny placed (" .. destinyState.originName .. ") - Need " .. (4 - destinyState.uniqueCount) .. " more unique spirits to activate.", playerColor, "Yellow")
+    elseif wasActivated and not destinyState.activated then
+      broadcastToColor("Origin Destiny deactivated - not enough spirits.", playerColor, "Orange")
+    end
+  else
+    -- No origin destiny on mat
+    if hadDestiny then
+      broadcastToColor("Origin Destiny removed.", playerColor, "White")
+    end
+    GameState.originDestinyActive[playerColor] = nil
+  end
+
+  -- Update UI to reflect blocked/active traits
+  UILib.updatePlayerUI(playerColor)
+end
+
+-------------------------------------------------------------------------------
+-- Spirit Fusion Animation (Origin Destiny Completion)
+-------------------------------------------------------------------------------
+
+-- Helper: Get player's display name
+local function getPlayerDisplayName(playerColor)
+  if Player[playerColor] and Player[playerColor].steam_name then
+    return Player[playerColor].steam_name
+  end
+  return playerColor
+end
+
+-- Particle color palette for Spirit Fusion
+local particleColors = {
+  {r=0.4, g=0.1, b=0.6},   -- Dark purple
+  {r=1, g=0.9, b=0.2},     -- Bright yellow
+  {r=0.6, g=0.1, b=0.1},   -- Dark red
+  {r=0.1, g=0.15, b=0.5},  -- Dark blue
+  {r=0.5, g=0.0, b=0.5},   -- Deep magenta
+  {r=0.8, g=0.4, b=0.0},   -- Dark orange
+  {r=0.3, g=0.0, b=0.3},   -- Deep violet
+  {r=1, g=0.6, b=0.0},     -- Golden orange
+  {r=0.2, g=0.0, b=0.4},   -- Indigo
+  {r=0.7, g=0.0, b=0.3},   -- Crimson
+  {r=0.9, g=0.8, b=0.1},   -- Gold
+  {r=0.3, g=0.1, b=0.5},   -- Purple
+}
+
+-- Helper: Spawn energy particle token
+local function spawnEnergyParticle(position, targetPos, delay, duration, scale)
+  scale = scale or 0.15
+  local color = particleColors[math.random(#particleColors)]
+  Wait.time(function()
+    spawnObject({
+      type = "BlockSquare",
+      position = position + Vector(0, 0.5, 0),
+      scale = Vector(scale, scale, scale),
+      sound = false,
+      callback_function = function(obj)
+        if not obj then return end
+        obj.setColorTint(color)
+        obj.setLock(true)
+        obj.highlightOn({r=1, g=1, b=1})
+        obj.setPositionSmooth(targetPos + Vector(0, 1, 0), false, false)
+        Wait.time(function()
+          if obj and obj.getGUID() then
+            obj.destruct()
+          end
+        end, duration)
+      end
+    })
+  end, delay)
+end
+
+--- Trigger the Spirit Fusion animation when Origin Destiny completes (6 unique spirits)
+--- Enhanced version with erratic flashing, particle effects, and spirit absorption
+function triggerSpiritFusion(playerColor, destinyState)
+  local originName = destinyState.originName
+  local destinyObject = destinyState.destinyObject
+  local arcaneSpirit = destinyState.arcaneSpirit
+
+  if not destinyObject or not arcaneSpirit then
+    GameState.debugPrint("[Global] Spirit Fusion failed - missing destiny object or arcane spirit data")
+    return
+  end
+
+  -- Get all spirits of the matching origin for the animation
+  local spiritObjects = PlayerMatLib.getSpiritsOfOrigin(playerColor, originName)
+  local destinyPos = destinyObject.getPosition()
+  local destinyRot = destinyObject.getRotation()  -- Capture original rotation before spinning
+  local playerName = getPlayerDisplayName(playerColor)
+
+  -- Validate positions before proceeding with animation
+  if not destinyPos or not destinyRot then
+    GameState.debugPrint("[Global] Spirit Fusion failed - could not get destiny object position/rotation")
+    return
+  end
+
+  -- Store original positions and colors (with nil safety)
+  local originalPositions = {}
+  local originalColors = {}
+  for i, spirit in ipairs(spiritObjects) do
+    local pos = spirit.getPosition()
+    local color = spirit.getColorTint()
+    originalPositions[i] = pos or destinyPos  -- Fallback to destiny position if nil
+    originalColors[i] = color or {r=1, g=1, b=1}
+  end
+
+  -- ============================================================================
+  -- ANIMATION TIMELINE (~15 seconds total)
+  -- ============================================================================
+
+  -- PHASE 1 (0.0s): Initial Announcement
+  UILib.showGlobalAnnouncementWithSub(
+    playerName .. " has completed the ORIGIN DESTINY",
+    "Cultivating the Arcane Spirit...",
+    6, {r=1, g=0.84, b=0}, {r=0.8, g=0.8, b=1}
+  )
+
+  -- SWIRLING RING: Continuous ring of particles orbiting around the hex area
+  local ringRadiusStart = 5  -- Starting radius around the hex formation
+  local ringRadiusEnd = 15   -- Grows to 3x bigger (5 -> 15)
+  local ringHeight = 1.5
+  local ringParticlesPerWave = 12
+  local ringWaves = 12  -- Multiple waves throughout the animation
+  for wave = 1, ringWaves do
+    local waveDelay = (wave - 1) * 1.0  -- One wave per second
+    local waveProgress = (wave - 1) / (ringWaves - 1)  -- 0 to 1
+    local waveScale = 0.3 + waveProgress * 0.7  -- Grow from 0.3 to 1.0
+    local waveRadius = ringRadiusStart + waveProgress * (ringRadiusEnd - ringRadiusStart)  -- Grow from 5 to 15
+
+    Wait.time(function()
+      for p = 1, ringParticlesPerWave do
+        local startAngle = (p / ringParticlesPerWave) * math.pi * 2
+        local endAngle = startAngle + math.pi * 1.5  -- Swirl 3/4 around
+
+        -- Start position (at current wave radius)
+        local startPos = destinyPos + Vector(
+          math.cos(startAngle) * waveRadius,
+          ringHeight + math.random() * 0.5,
+          math.sin(startAngle) * waveRadius
+        )
+
+        -- End position (swirled around and slightly inward)
+        local endRadius = waveRadius * 0.6
+        local endPos = destinyPos + Vector(
+          math.cos(endAngle) * endRadius,
+          ringHeight + 1 + math.random() * 0.5,
+          math.sin(endAngle) * endRadius
+        )
+
+        local particleDelay = (p / ringParticlesPerWave) * 0.3  -- Stagger within wave
+        spawnEnergyParticle(startPos, endPos, particleDelay, 2.0, waveScale)
+      end
+    end, waveDelay)
+  end
+
+  -- PHASE 2 (0.5s - 4.5s): Spirits awaken with random pulsing
+  -- Each spirit pulses at random intervals, getting faster
+  for i, spirit in ipairs(spiritObjects) do
+    local baseDelay = 0.5 + math.random() * 0.6  -- Random start 0.5-1.1s
+
+    -- Initial slow pulse
+    Wait.time(function()
+      if spirit and spirit.getGUID() then
+        spirit.setColorTint({r=1, g=0.84, b=0})
+        spirit.highlightOn({r=1, g=0.84, b=0}, 0.5)
+      end
+    end, baseDelay + (i - 1) * 0.5)
+
+    Wait.time(function()
+      if spirit and spirit.getGUID() then
+        spirit.setColorTint(originalColors[i] or {r=1, g=1, b=1})
+        spirit.highlightOff()
+      end
+    end, baseDelay + (i - 1) * 0.5 + 0.4)
+  end
+
+  -- PHASE 3 (4.5s - 9.0s): Erratic flashing - starts slow, gets faster and more chaotic
+  local flashPhaseStart = 4.5
+  local flashPhaseDuration = 4.5
+  local allObjects = {}
+  for _, spirit in ipairs(spiritObjects) do
+    table.insert(allObjects, spirit)
+  end
+  table.insert(allObjects, destinyObject)
+
+  -- Create accelerating flash pattern
+  local flashTimes = {}
+  local currentTime = 0
+  local interval = 0.5  -- Starting interval
+  while currentTime < flashPhaseDuration do
+    table.insert(flashTimes, currentTime)
+    currentTime = currentTime + interval
+    interval = math.max(0.05, interval * 0.75)  -- Accelerate (min 0.05s)
+  end
+
+  -- Schedule the flashes
+  for _, flashTime in ipairs(flashTimes) do
+    Wait.time(function()
+      -- Pick random objects to flash (more objects as time goes on)
+      local progress = flashTime / flashPhaseDuration
+      local numToFlash = math.ceil(#allObjects * (0.3 + progress * 0.7))
+
+      -- Shuffle and pick
+      local shuffled = {}
+      for _, obj in ipairs(allObjects) do
+        table.insert(shuffled, obj)
+      end
+      for i = #shuffled, 2, -1 do
+        local j = math.random(i)
+        shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
+      end
+
+      -- Flash the selected objects
+      for i = 1, numToFlash do
+        local obj = shuffled[i]
+        if obj and obj.getGUID() then
+          -- Random color variation (gold to white)
+          local r = 1
+          local g = 0.7 + math.random() * 0.3
+          local b = math.random() * 0.5
+          obj.setColorTint({r=r, g=g, b=b})
+          obj.highlightOn({r=1, g=1, b=1}, 0.1)
+
+          -- Quick flash off
+          Wait.time(function()
+            if obj and obj.getGUID() then
+              obj.highlightOff()
+              obj.setColorTint({r=1, g=1, b=1})
+            end
+          end, 0.05 + math.random() * 0.05)
+        end
+      end
+    end, flashPhaseStart + flashTime)
+  end
+
+  -- Spawn particle effects during flash phase (small particles - early stage)
+  for i, spirit in ipairs(spiritObjects) do
+    for p = 1, 4 do  -- 4 particles per spirit (more time = more particles)
+      local delay = flashPhaseStart + 0.5 + math.random() * 3.5
+      local particleOffset = Vector(
+        (math.random() - 0.5) * 2,
+        0,
+        (math.random() - 0.5) * 2
+      )
+      spawnEnergyParticle(originalPositions[i] + particleOffset, destinyPos, delay, 2.0, 0.5)  -- Small particles
+    end
+  end
+
+  -- PHASE 4 (9.0s - 11.25s): Convergence - spirits drift toward destiny and shrink
+  local convergeStart = 9.0
+  Wait.time(function()
+    -- All objects glow intensely
+    for _, obj in ipairs(allObjects) do
+      if obj and obj.getGUID() then
+        obj.setColorTint({r=1, g=0.84, b=0})
+        obj.highlightOn({r=1, g=1, b=1}, 2)
+      end
+    end
+
+    -- Origin Destiny rises and spins
+    if destinyObject and destinyObject.getGUID() then
+      local risePos = destinyPos + Vector(0, 2.5, 0)
+      destinyObject.setPositionSmooth(risePos, false, false)
+    end
+
+    -- Spirits move toward destiny
+    for i, spirit in ipairs(spiritObjects) do
+      if spirit and spirit.getGUID() then
+        local targetPos = destinyPos + Vector(
+          (math.random() - 0.5) * 1,
+          1.5 + math.random() * 0.5,
+          (math.random() - 0.5) * 1
+        )
+        spirit.setPositionSmooth(targetPos, false, false)
+      end
+    end
+
+    -- Spawn medium particles converging from across the table toward the merge point
+    local mergePoint = destinyPos + Vector(0, 2.5, 0)
+    local particleCount = 24  -- Particles converging from all directions
+    for p = 1, particleCount do
+      local angle = (p / particleCount) * math.pi * 2
+      local radius = 25 + math.random() * 15  -- Much farther - 25-40 units away
+      local height = 5 + math.random() * 10   -- Higher up
+      local startPos = destinyPos + Vector(
+        math.cos(angle) * radius,
+        height,
+        math.sin(angle) * radius
+      )
+      local delay = math.random() * 1.5  -- Staggered spawns over 1.5 seconds
+      spawnEnergyParticle(startPos, mergePoint, delay, 2.5, 1.0)  -- Medium particles
+    end
+  end, convergeStart)
+
+  -- PHASE 5 (11.25s - 12.75s): Final merge - rapid spinning, spirits absorbed
+  local mergeStart = 11.25
+  Wait.time(function()
+    local mergePoint = destinyPos + Vector(0, 2.5, 0)
+
+    -- Destiny spins rapidly
+    if destinyObject and destinyObject.getGUID() then
+      destinyObject.setRotationSmooth({0, 1440, 0}, false, false)  -- 4 full spins
+    end
+
+    -- Second wave of particles - largest size for final merge
+    local mergeParticleCount = 32
+    for p = 1, mergeParticleCount do
+      local angle = (p / mergeParticleCount) * math.pi * 2 + math.random() * 0.5
+      local radius = 15 + math.random() * 25  -- 15-40 units away
+      local height = 3 + math.random() * 12   -- Varied heights
+      local startPos = destinyPos + Vector(
+        math.cos(angle) * radius,
+        height,
+        math.sin(angle) * radius
+      )
+      local delay = math.random() * 0.8  -- Faster spawns
+      spawnEnergyParticle(startPos, mergePoint, delay, 1.5, 1.5)  -- Large particles for finale
+    end
+
+    -- Spirits shrink and move to exact center
+    for i, spirit in ipairs(spiritObjects) do
+      local destroyDelay = 0.2 + math.random() * 0.8  -- Staggered destruction
+      Wait.time(function()
+        if spirit and spirit.getGUID() then
+          -- Final flash before destruction
+          spirit.highlightOn({r=1, g=1, b=1})
+          spirit.setPositionSmooth(mergePoint, false, false)
+
+          Wait.time(function()
+            if spirit and spirit.getGUID() then
+              spirit.destruct()
+            end
+          end, 0.2)
+        end
+      end, destroyDelay)
+    end
+  end, mergeStart)
+
+  -- PHASE 6 (12.75s - 15s): Transformation - destiny becomes Arcane Spirit
+  local transformStart = 12.75
+  Wait.time(function()
+    if destinyObject and destinyObject.getGUID() then
+      local spawnPos = destinyObject.getPosition()
+
+      -- Final flash on destiny
+      destinyObject.highlightOn({r=1, g=1, b=1})
+
+      Wait.time(function()
+        if destinyObject and destinyObject.getGUID() then
+          local finalPos = destinyPos  -- Original destiny position on mat
+          destinyObject.destruct()
+
+          -- Spawn the Arcane Spirit
+          local spiritData = {
+            Name = "Custom_Token",
+            Nickname = arcaneSpirit.name,
+            Transform = {
+              scaleX = 1.58333,
+              scaleY = 1,
+              scaleZ = 1.58333
+            },
+            ColorDiffuse = { r = 1, g = 0.84, b = 0 },
+            Tags = { "HexSpirit", "ArcaneSpirit" },
+            GMNotes = JSON.encode({
+              id = arcaneSpirit.id,
+              cost = arcaneSpirit.cost,
+              classes = arcaneSpirit.classes,
+              origins = arcaneSpirit.origins
+            }),
+            CustomImage = {
+              ImageURL = arcaneSpirit.imageUrl,
+              ImageScalar = 1,
+              WidthScale = 0,
+              CustomToken = {
+                Thickness = 0.2,
+                MergeDistancePixels = 25,
+                StandUp = false,
+                Stackable = false
+              }
+            }
+          }
+
+          spawnObjectData({
+            data = spiritData,
+            position = spawnPos + Vector(0, 2, 0),
+            rotation = Vector(0, destinyRot.y, 0),
+            callback_function = function(spawned)
+              if not spawned then return end
+              -- Descend with glow
+              spawned.highlightOn({r=1, g=1, b=1}, 1.5)
+              spawned.setPositionSmooth(finalPos, false, false)
+
+              -- Spawn celebration particles around arcane spirit
+              for p = 1, 8 do
+                local angle = (p / 8) * math.pi * 2
+                local particlePos = finalPos + Vector(math.cos(angle) * 2, 0, math.sin(angle) * 2)
+                spawnEnergyParticle(particlePos, finalPos + Vector(0, 1, 0), 0.1 * p, 1)
+              end
+
+              Wait.time(function()
+                if spawned and spawned.getGUID() then
+                  spawned.setColorTint({r=1, g=1, b=1})
+                  spawned.highlightOff()
+                end
+
+                -- Clear the origin destiny state
+                GameState.originDestinyActive[playerColor] = nil
+
+                -- Rescan and update
+                PlayerMatLib.rescanSpirits(playerColor)
+                UILib.updatePlayerUI(playerColor)
+
+                -- Final announcement
+                UILib.showGlobalAnnouncementWithSub(
+                  "🌟 " .. arcaneSpirit.name .. " 🌟",
+                  "has been summoned!",
+                  4, {r=1, g=0.84, b=0}, {r=1, g=1, b=1}
+                )
+              end, 1.5)
+            end
+          })
+        end
+      end, 0.3)
+    end
+  end, transformStart)
+end
+
+-------------------------------------------------------------------------------
+-- MARK: General Helper Functions (exposed globally for callbacks)
+-------------------------------------------------------------------------------
+
+function removeContainedAssets()
+  local assetNames = { "Spirit World Bag", "Abyss Fallen Spirits", "Arcane Spirits", "Hex Spirits (Special)",
+                       "Spirit World Spirits", "Hex Spirits", "Sealed Spirits", "Hex Spirits (Ancient)",
+                       "Artifacts (Basic)", "Artifacts (Guardian)", "Artifacts (Other)",
+                       "Monsters", "Travelers", "Traveler Quests", "Icons" }
+  for _, name in ipairs(assetNames) do
+    local bag = UtilLib.getObjectByName(name)
+    if bag then bag.destruct() end
+  end
+  broadcastToAll("Removed all contained assets.", "Yellow")
+end
+
+-- Expose getObjectByName globally for TTS callbacks that need it
+function getObjectByName(name)
+  return UtilLib.getObjectByName(name)
+end
+
+-- Expose checkForNavigationSelection for callbacks
+function checkForNavigationSelection()
+  NavigationLib.checkForNavigationSelection()
+end

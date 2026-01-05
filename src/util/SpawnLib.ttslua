@@ -1,0 +1,122 @@
+-- SpawnLib.ttslua
+-- Object spawning utilities for bags and custom objects
+
+local SpawnLib = {}
+
+-- Import required libraries
+local ObjectTemplateLib = require("util/ObjectTemplateLib")
+local UtilLib = require("util/UtilLib")
+local GameState = require("state/GameState")
+
+-- Get position, rotation, and GUID from existing bag before destroying it
+-- @param name: Name of the bag object to retrieve data from
+-- @return position: Vector position of the bag
+-- @return rotation: Vector rotation of the bag
+-- @return guid: GUID of the bag
+function SpawnLib.getSomeDataFromBag(name)
+  local position, rotation, guid
+  local bag = UtilLib.getObjectByName(name)
+  if bag then
+    position = bag.getPosition()
+    rotation = bag.getRotation()
+    guid     = bag.getGUID()
+    bag.destruct()
+  end
+  return position, rotation, guid
+end
+
+-- Spawn a standard bag with contained objects
+-- @param name: Name/nickname for the bag
+-- @param objectList: Table of objects to contain in the bag
+-- @param position: Vector position to spawn at
+-- @param rotation: Vector rotation (default: 0, 180, 0)
+-- @param scale: Vector scale (default: 2, 2, 2)
+-- @param guid: Optional GUID for the bag
+function SpawnLib.spawnBag(name, objectList, position, rotation, scale, guid)
+  local data            = ObjectTemplateLib.getTemplate("Bag")
+  scale                 = scale or Vector(2, 2, 2)
+  rotation              = rotation or Vector(0, 180, 0)
+
+  data.GUID             = guid
+  data.Nickname         = name
+  data.Locked           = true
+  data.ContainedObjects = objectList
+  data.Transform.posX   = position.x
+  data.Transform.posY   = position.y
+  data.Transform.posZ   = position.z
+  data.Transform.rotX   = rotation.x
+  data.Transform.rotY   = rotation.y
+  data.Transform.rotZ   = rotation.z
+  data.Transform.scaleX = scale.x
+  data.Transform.scaleY = scale.y
+  data.Transform.scaleZ = scale.z
+
+  spawnObjectData({ data = data })
+end
+
+-- Spawn a custom spirit bag with custom image and contained objects
+-- @param name: Name/nickname for the spirit bag
+-- @param objectList: Table of objects to contain in the bag
+-- @param position: Vector position to spawn at
+-- @param rotation: Vector rotation (default: 0, 180, 0)
+-- @param scale: Vector scale (default: 6.8, 0.2, 6.24)
+-- @param guid: Optional GUID for the bag
+-- @param url: Image URL for the custom spirit bag appearance
+function SpawnLib.spawnCustomSpiritBag(name, objectList, position, rotation, scale, guid, url)
+  local data                                = ObjectTemplateLib.getTemplate("CustomSpiritBag")
+  scale                                     = scale or Vector(6.8, 0.2, 6.24)
+  rotation                                  = rotation or Vector(0, 180, 0)
+
+  data.GUID                                 = guid
+  data.Nickname                             = name
+  data.Locked                               = true
+  data.ContainedObjects                     = objectList
+  data.Transform.posX                       = position.x
+  data.Transform.posY                       = position.y
+  data.Transform.posZ                       = position.z
+  data.Transform.rotX                       = rotation.x
+  data.Transform.rotY                       = rotation.y
+  data.Transform.rotZ                       = rotation.z
+  data.Transform.scaleX                     = scale.x
+  data.Transform.scaleY                     = scale.y
+  data.Transform.scaleZ                     = scale.z
+
+  data.ChildObjects[1].CustomImage.ImageURL = url
+  spawnObjectData({ data = data })
+end
+
+-- Update the image of an object by its name
+-- @param name: Name of the object to update
+-- @param url: New image URL
+function SpawnLib.updateObjectImageByName(name, url)
+  local object = UtilLib.getObjectByName(name)
+  if not object then return end
+
+  object.setCustomObject({ image = url })
+  object.reload()
+end
+
+-- Update the image of all objects with a specific tag
+-- @param tag: Tag to search for
+-- @param url: New image URL
+function SpawnLib.updateObjectImageByTag(tag, url)
+  for _, object in ipairs(getObjectsWithTag(tag)) do
+    object.setCustomObject({ image = url })
+    object.reload()
+  end
+end
+
+-- Update the image of a child object by parent object name
+-- @param name: Name of the parent object
+-- @param url: New image URL for the child object
+function SpawnLib.updateObjectChildImageByName(name, url)
+  local object = UtilLib.getObjectByName(name)
+  if not object then return end
+
+  local data = object.getData()
+  data.ChildObjects[1].CustomImage.ImageURL = url
+  object.destruct()
+  spawnObjectData({ data = data })
+end
+
+return SpawnLib
