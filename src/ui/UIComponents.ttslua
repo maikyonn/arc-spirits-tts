@@ -23,10 +23,10 @@ end
 
 function UIComponents.button(config)
   local presets = {
-    default = { color = UITheme.colors.surface, textColor = UITheme.colors.text },
-    primary = { color = UITheme.colors.primary, textColor = UITheme.colors.text },
-    success = { color = UITheme.colors.success, textColor = UITheme.colors.text },
-    danger = { color = UITheme.colors.danger, textColor = UITheme.colors.text }
+    default = { color = UITheme.colors.surface, textColor = UITheme.colors.text, colorblock = UITheme.colorblocks.surface },
+    primary = { color = UITheme.colors.primary, textColor = UITheme.colors.text, colorblock = UITheme.colorblocks.primary },
+    success = { color = UITheme.colors.success, textColor = UITheme.colors.text, colorblock = UITheme.colorblocks.success },
+    danger = { color = UITheme.colors.danger, textColor = UITheme.colors.text, colorblock = UITheme.colorblocks.danger },
   }
   local preset = presets[config.preset or "default"]
   local labelText = config.text or ""
@@ -66,7 +66,9 @@ function UIComponents.button(config)
       tooltip = config.tooltip,
       tooltipPosition = config.tooltipPosition,
       image = config.image,
-      colors = config.colors
+      colors = config.colors or preset.colorblock,
+      outline = config.outline or UITheme.colors.muted,
+      outlineSize = config.outlineSize or "2 2",
     },
     children = children
   }
@@ -77,7 +79,7 @@ function UIComponents.vLayout(children, spacing, padding)
     tag = "VerticalLayout",
     attributes = {
       spacing = spacing or UITheme.sizes.spacing.sm,
-      padding = padding or UITheme.sizes.padding.md
+      padding = padding or UITheme.sizes.padding.md,
     },
     children = children
   }
@@ -89,7 +91,7 @@ function UIComponents.hLayout(children, spacing, height)
     attributes = {
       spacing = spacing or UITheme.sizes.spacing.xs,
       preferredHeight = height or UITheme.sizes.buttonHeight.md,
-      childAlignment = "MiddleCenter"
+      childAlignment = "MiddleCenter",
     },
     children = children
   }

@@ -200,7 +200,6 @@ function SidebarUI.buildDiceSpawnerSection(playerColor)
         text = "Spawn Dice",
         fontSize = UITheme.sizes.fontSize.md,
         height = 36,
-        color = UITheme.colors.primary
       })
     }
   }

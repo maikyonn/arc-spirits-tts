@@ -40,6 +40,18 @@ UITheme.colors = {
 }
 
 -------------------------------------------------------------------------------
+-- Colorblocks - Colors for buttons
+-- normalColor|highlightedColor|pressedColor|disabledColor
+-------------------------------------------------------------------------------
+
+UITheme.colorblocks = {
+  surface = "#1a1a2e00|#1f1f3740|#0d0d1740|#666666",  -- surface, surface with value 120%, surface with value 50%, muted
+  primary = "#4a6fa5|#5984c6|#253752|#666666",        -- primary, primary with value 120%, primary with value 50%, muted
+  success = "#2d5d2d|#367036|#162e16|#666666",        -- success, success with value 120%, success with value 50%, muted
+  danger = "#5d2d2d|#703636|#2e1616|#666666",         -- danger, danger with value 120%, danger with value 50%, muted
+}
+
+-------------------------------------------------------------------------------
 -- Sizes
 -------------------------------------------------------------------------------
 
