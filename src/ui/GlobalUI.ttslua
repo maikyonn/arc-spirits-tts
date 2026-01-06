@@ -61,7 +61,7 @@ function GlobalUI.buildRealmNavigator()
           attributes = {
             spacing = 4,
             childAlignment = "MiddleCenter",
-            padding = "4 4 4 4"
+            padding = "4 4 2 2"
           },
           children = {
             -- Player name (left side, flexible width)
@@ -73,7 +73,9 @@ function GlobalUI.buildRealmNavigator()
                 fontSize = UITheme.sizes.fontSize.md,
                 color = UITheme.colors.text,
                 alignment = "MiddleLeft",
-                flexibleWidth = 1
+                minWidth = 120,
+                flexibleWidth = 1,
+                verticalOverflow = "Overflow",
               }
             },
             -- Resources container (right side, compact)
