@@ -14,7 +14,7 @@ local SidebarUI = {}
 -------------------------------------------------------------------------------
 
 local SIDEBAR_WIDTH = 240
-local SIDEBAR_HEIGHT = 560
+local SIDEBAR_HEIGHT = 420
 local SIDEBAR_OFFSET = "-5 10"
 
 -------------------------------------------------------------------------------
@@ -200,7 +200,6 @@ function SidebarUI.buildDiceSpawnerSection(playerColor)
         text = "Spawn Dice",
         fontSize = UITheme.sizes.fontSize.md,
         height = 36,
-        color = UITheme.colors.primary
       })
     }
   }
@@ -210,29 +209,31 @@ end
 ---@param playerColor string The player color
 ---@return table The tools section panel XML
 function SidebarUI.buildToolsSection(playerColor)
+  -- Moved the Debug Info UI button into an assignable hotkey
+  addHotkey("Debug Info", |playerColor, obj, pos, is_up| xml_showDebugPanel(Player[playerColor]))
   return {
-    tag = "Panel",
-    attributes = {
-      color = UITheme.colors.surface,
-      padding = "6 6 6 6"
-    },
-    children = {
-      {
-        tag = "VerticalLayout",
-        attributes = { spacing = 4 },
-        children = {
-          -- Debug button
-          UIComponents.button({
-            id = playerColor .. "_btn_debug",
-            onClick = "xml_showDebugPanel",
-            text = "Debug Info",
-            fontSize = UITheme.sizes.fontSize.md,
-            height = 32,
-            color = UITheme.colors.surface
-          })
-        }
-      }
-    }
+    -- tag = "Panel",
+    -- attributes = {
+      -- color = UITheme.colors.surface,
+      -- padding = "6 6 6 6"
+    -- },
+    -- children = {
+      -- {
+        -- tag = "VerticalLayout",
+        -- attributes = { spacing = 4 },
+        -- children = {
+          -- -- Debug button
+          -- UIComponents.button({
+            -- id = playerColor .. "_btn_debug",
+            -- onClick = "xml_showDebugPanel",
+            -- text = "Debug Info",
+            -- fontSize = UITheme.sizes.fontSize.md,
+            -- height = 32,
+            -- color = UITheme.colors.surface
+          -- })
+        -- }
+      -- }
+    -- }
   }
 end
 

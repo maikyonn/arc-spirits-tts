@@ -61,7 +61,7 @@ function GlobalUI.buildRealmNavigator()
           attributes = {
             spacing = 4,
             childAlignment = "MiddleCenter",
-            padding = "4 4 4 4"
+            padding = "4 4 2 2"
           },
           children = {
             -- Player name (left side, flexible width)
@@ -73,7 +73,9 @@ function GlobalUI.buildRealmNavigator()
                 fontSize = UITheme.sizes.fontSize.md,
                 color = UITheme.colors.text,
                 alignment = "MiddleLeft",
-                flexibleWidth = 1
+                minWidth = 120,
+                flexibleWidth = 1,
+                verticalOverflow = "Overflow",
               }
             },
             -- Resources container (right side, compact)
@@ -138,13 +140,22 @@ function GlobalUI.buildRealmNavigator()
   end
 
   -- Navigate button at bottom
-  table.insert(navChildren, UIComponents.button({
+  table.insert(navChildren, {
+    tag = "Panel",
+    attributes = {
+      color = UITheme.colors.surface,
+      padding = "6 6 6 6"
+    },
+    children = {
+    UIComponents.button({
     onClick = "xml_navigateRealm",
     text = "Choose Destination",
     preset = "default",
     fontSize = UITheme.sizes.fontSize.lg,
     height = UITheme.sizes.buttonHeight.md
-  }))
+    })
+    }
+  })
 
   -- Calculate height based on number of players (will resize dynamically)
   local initialHeight = NAVIGATOR_BASE_HEIGHT + NAVIGATOR_ROW_HEIGHT
@@ -189,6 +200,13 @@ function GlobalUI.buildTopButtons()
     },
     children = {
       UIComponents.vLayout({
+        {
+        tag = "Panel",
+        attributes = {
+          color = UITheme.colors.surface,
+          padding = "6 6 6 6"
+        },
+        children = {
         UIComponents.button({
           id = "btn_draw2pick1",
           onClick = "xml_draw2Pick1",
@@ -196,7 +214,14 @@ function GlobalUI.buildTopButtons()
           preset = "default",
           fontSize = UITheme.sizes.fontSize.md,
           height = UITheme.sizes.buttonHeight.md
-        }),
+        })}},
+        {
+        tag = "Panel",
+        attributes = {
+          color = UITheme.colors.surface,
+          padding = "6 6 6 6"
+        },
+        children = {
         UIComponents.button({
           id = "btn_draw4pick1_sealed",
           onClick = "xml_draw4Pick1Sealed",
@@ -204,7 +229,14 @@ function GlobalUI.buildTopButtons()
           preset = "default",
           fontSize = UITheme.sizes.fontSize.sm,
           height = UITheme.sizes.buttonHeight.md
-        }),
+        })}},
+        {
+        tag = "Panel",
+        attributes = {
+          color = UITheme.colors.surface,
+          padding = "6 6 6 6"
+        },
+        children = {
         UIComponents.button({
           id = "btn_return_spirits",
           onClick = "xml_returnAllSpirits",
@@ -212,7 +244,7 @@ function GlobalUI.buildTopButtons()
           preset = "default",
           fontSize = UITheme.sizes.fontSize.md,
           height = UITheme.sizes.buttonHeight.md
-        })
+        })}},
       }, UITheme.sizes.spacing.xs, UITheme.sizes.padding.sm)
     }
   }
@@ -305,14 +337,21 @@ function GlobalUI.buildNavigationSelector(playerColor)
 
   -- Create a button for each navigation option
   for i, option in ipairs(GameState.NAVIGATE_OPTIONS) do
-    table.insert(layoutChildren, UIComponents.button({
+    table.insert(layoutChildren,
+      {
+      tag = "Panel",
+      attributes = {
+        color = UITheme.colors.surface,
+        padding = "6 6 6 6"
+        },
+      children = {UIComponents.button({
       id = playerColor .. "_nav_option_" .. i,
       onClick = "xml_selectDestination",
       text = option,
-      preset = "primary",
+      preset = "default",
       fontSize = UITheme.sizes.fontSize.md,
       height = 32
-    }))
+      })}})
   end
 
   -- Add cancel button
