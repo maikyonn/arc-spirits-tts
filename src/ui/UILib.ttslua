@@ -307,7 +307,7 @@ function UILib.buildClassBreakpointsWindow(playerColor)
     tag = "Panel",
     attributes = {
       id            = playerColor .. "_classbreakpoints_window",
-      width         = 350,
+      width         = 400,
       height        = 580,
       color         = UITheme.colors.surface,
       rectAlignment = "LowerRight",
@@ -700,7 +700,7 @@ function UILib.showClassBreakpoints(player, className)
   -- Calculate dynamic panel height based on number of breakpoints
   local numBreakpoints = classData.effect_schema and #classData.effect_schema or 0
   local baseHeight = 160  -- Header, description, tags, footer, padding
-  local perBreakpointHeight = 45  -- Height per breakpoint line (with double spacing)
+  local perBreakpointHeight = 54  -- Height per breakpoint line (with double spacing)
   local calculatedHeight = baseHeight + (numBreakpoints * perBreakpointHeight)
 
   -- Set minimum and maximum bounds
